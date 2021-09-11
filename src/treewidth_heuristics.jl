@@ -3,16 +3,22 @@ export min_width_sampling
 export min_width_mt_sampling
 export mmd, mmd_plus, mmd_plus_correct
 
+#=
+This file contains heuristic functions for computing upper and lower bounds
+on the treewidth of a graph.
+=#
+
 ###
-### Min Fill Heuristic
+### Min fill heuristic for upper bounds.
 ###
 
 """
     min_fill(g::AbstractGraph)
 
-Use the min fill heuristic to find a vertex elimination order for g.
+Use the min fill heuristic to find a vertex elimination order for g with
+a minimal treewidth.
 """
-function min_fill(g::AbstractGraph, seed::Int=42)
+function min_fill(g::AbstractGraph; seed::Int=42)
     labels = collect(1:nv(g))
     cliqueness_map = [cliqueness(g, v) for v in vertices(g)]
     order = Array{Int, 1}(undef, nv(g))
@@ -53,7 +59,8 @@ heuristic and returns the best one.
 
 Sampling is multi-threaded.
 """
-function min_fill(g::AbstractGraph, samples::Integer, seed::Integer=42)
+function min_fill(g::AbstractGraph, samples::Integer; seed::Integer=42)
+    # Allocate memory for each thread.
     N = nv(g)
     rngs = [MersenneTwister(seed + threadid()) for i = 1:nthreads()]
     orders = [Array{Int, 1}(undef, N) for _ = 1:nthreads()]
@@ -63,161 +70,48 @@ function min_fill(g::AbstractGraph, samples::Integer, seed::Integer=42)
     cliqueness_map = [Array{Int, 1}(undef, N) for _ = 1:nthreads()]
     labels = [Array{Int, 1}(undef, N) for _ = 1:nthreads()]
 
-    best_orders = Array{Array{Int, 1}}(undef, nthreads())
-    best_tws = fill(nv(g), nthreads())
+    best_orders = [Array{Int, 1}(undef, N) for _ = 1:nthreads()]
+    best_tws = fill(N, nthreads())
 
 
     @threads for i = 1:samples
-        # TODO: This is slower for some reason, I think id and tw are being allocated on 
-        # the heap and not the stack and so are shared between threads?:
-        # id = Threads.threadid()::Int64
-        # orders[id], tw = min_fill(rngs[id], graphs[id])
-        # if tw < best_tws[id]
-        #     best_orders[id] = orders[id]
-        #     best_tws[id] = tw
-        # end
-
         # Re-initialise cliqueness_map and label caches before next min fill call.
         @inbounds for v = 1:N
             cliqueness_map[threadid()][v] = cliqueness(g, v)
             labels[threadid()][v] = v
         end
 
-
+        # call the min fill heuristic.
         tws[threadid()] = min_fill(rngs[threadid()], 
                                     graphs[threadid()],
                                     labels[threadid()],
                                     cliqueness_map[threadid()],
                                     orders[threadid()])
 
+        # Update the best treewidth and order if a better one was found.
         if tws[threadid()] < best_tws[threadid()]
-            best_orders[threadid()] = orders[threadid()]
+            best_orders[threadid()][:] = orders[threadid()][:]
             best_tws[threadid()] = tws[threadid()]
         end
     end
 
-    best = argmax(best_tws)
+    # Return the best result.
+    best = argmin(best_tws)
     best_orders[best], best_tws[best]
 end
 
-
-"""
-    eliminate!(graph, labels, vertex)
-
-Connects the neighbours of the given vertex into a clique before removing 
-it from the graph.
-
-The array of vertex labels are also updated to reflect the 
-reording of vertex indices when the graph is updated.
-"""
-function eliminate!(g::AbstractGraph, labels, v)
-    Nᵥ = all_neighbors(g, v)::Array{Int64, 1}
-    for i = 1:length(Nᵥ)-1
-        vi = Nᵥ[i]
-        for j = i+1:length(Nᵥ)
-            vj = Nᵥ[j]
-            add_edge!(g, vi, vj)
-        end
-    end
-
-    rem_vertex!(g, v)
-    labels[v] = labels[end]
-    pop!(labels)
-    g
-end
-
-"""
-    eliminate!(graph, labels, vertex)
-
-Connects the neighbours of the given vertex into a clique before removing 
-it from the graph.
-
-The arrays of vertex labels and cliqueness are also updated to reflect the 
-reording of vertex indices when the graph is updated.
-"""
-function eliminate!(g::AbstractGraph, labels, c_map, v)
-    Nᵥ = all_neighbors(g, v)::Array{Int64, 1}
-    for i = 1:length(Nᵥ)-1
-        vi = Nᵥ[i]
-        for j = i+1:length(Nᵥ)
-            vj = Nᵥ[j]
-
-            # Try add an edge connecting vi and ui. If successful, update `c_map`.
-            edge_added = add_edge!(g, vi, vj)
-            if edge_added
-                # Common neighbours of vi and vj have one less edge to add
-                # when being eliminated after vi and ui are connected.
-                Nvi = all_neighbors(g, vi)::Array{Int64, 1}
-                Nvj = all_neighbors(g, vj)::Array{Int64, 1}
-                for n in Nvi
-                    if n in Nvj
-                        c_map[n] -= 1
-                    end
-                end
-
-                # ui and vi are now neighbours so their cliqueness may increase.
-                for n in Nvi
-                    if !(n == vj) && !(has_edge(g, n, vj)::Bool)
-                        c_map[vi] += 1
-                    end
-                end
-                for n in Nvj
-                    if !(n == vi) && !(has_edge(g, n, vi)::Bool)
-                        c_map[vj] += 1
-                    end
-                end
-            end
-        end
-    end
-
-    # Removing v from G means it's also removed from its neighbour's neighbourhood, so their 
-    # cliqueness may be reduced.
-    for n in Nᵥ
-        Nₙ = all_neighbors(g, n)::Array{Int64, 1}
-        for u in Nₙ
-            if !(u == v)
-                if !has_edge(g, v, u)
-                    c_map[n] -= 1
-                end
-            end
-        end
-    end
-
-    rem_vertex!(g, v)
-    c_map[v] = c_map[end]
-    labels[v] = labels[end]
-    # pop!(c_map)
-    pop!(labels)
-    g
-end
-
-
-"""
-    cliqueness(G::AbstractGraph, v::Integer)
-
-Return the number of edges that need to be added to `G` in order to make the neighborhood of 
-vertex `v` a clique.
-"""
-function cliqueness(g::AbstractGraph, v::Integer)::Int
-    neighborhood = all_neighbors(g, v)::Array{Int64, 1}
-    count = 0
-    for i in 1:length(neighborhood)-1
-        for j in i+1:length(neighborhood)
-            vi = neighborhood[i]
-            ui = neighborhood[j]
-            if !has_edge(g, ui, vi)::Bool
-                count += 1
-            end
-        end
-    end
-    count
-end
 
 ###
 ### Min Width Heuristic
 ###
 
-function min_width(g::AbstractGraph, seed=nothing)
+"""
+    min_width(g::AbstractGraph, seed::Union{Nothing, Int})
+
+Use the min width heuristic to find a vertex elimination order for g with
+a minimal treewidth.
+"""
+function min_width(g::AbstractGraph; seed::Union{Nothing, Int}=nothing)
     labels = collect(1:nv(g))
     order = Array{Int, 1}(undef, nv(g))
     rng = seed isa Int ? MersenneTwister(seed) : MersenneTwister()
@@ -247,14 +141,42 @@ function min_width(rng::AbstractRNG,
     tw
 end
 
-function min_width_sampling(g::AbstractGraph, N_samples::Int)
-    rng = MersenneTwister()
+"""
+    min_width(g::AbstractGraph, samples::Integer, seed::Integer=42)
+
+Samples a specified number of vertex elimination orders for g using the min fill 
+heuristic and returns the best one.
+
+Sampling is multi-threaded.
+"""
+function min_width(g::AbstractGraph, samples::Int; seed::Int=42)
+    # Allocate memory for each thread.
+    orders = Array{Array{Int, 1}, 1}(undef, nthreads())
+    tws = Array{Int, 1}(undef, nthreads())
+
+    # Get each thread to sample elimination orders.
+    samples_per_thread = samples ÷ nthreads()
+    @threads for t = 1:nthreads()
+        orders[threadid()], tws[threadid()] = min_width_sampling(g, 
+                                                                samples_per_thread + ((samples % nthreads()) > 0); 
+                                                                seed = seed + t)
+    end
+
+    # return the best result.
+    best = argmin(tws)
+    orders[best], tws[best]
+end
+
+function min_width_sampling(g::AbstractGraph, N_samples::Int; seed::Int=42)
+    # Create an rng and allocate memory.
+    rng = MersenneTwister(seed)
 
     best_order = Array{Int, 1}(undef, nv(g))
     best_tw = nv(g)
     
     curr_order = Array{Int, 1}(undef, nv(g))
 
+    # Sample the given number of elimination orders.
     for i = 1:N_samples
         curr_tw = min_width(rng, deepcopy(g), collect(1:nv(g)), curr_order)
         if curr_tw < best_tw
@@ -263,34 +185,21 @@ function min_width_sampling(g::AbstractGraph, N_samples::Int)
         end
     end
 
+    # Return the best result.
     best_order, best_tw
 end
 
-function min_width_mt_sampling(g::AbstractGraph, samples_per_thread::Int)
-    orders = Array{Array{Int, 1}, 1}(undef, nthreads())
-    tws = Array{Int, 1}(undef, nthreads())
-
-    @threads for _ = 1:nthreads()
-        orders[threadid()], tws[threadid()] = min_width_sampling(g, samples_per_thread)
-    end
-
-    best = argmin(tws)
-
-    orders[best], tws[best]
-end
-
 
 ###
-### Lower Bound heuristics
+### Lower bound heuristics (see Bodlaender 2011)
 ###
-
 
 """Maximum Minimum Degree"""
 function mmd(G::SimpleGraph{Int})
     N = nv(G)
     degree_map = degree(G)
     maxmin = 0
-    while maxmin < N # N > 2
+    while maxmin < N
         dv, v = findmin(degree_map)
         maxmin = max(maxmin, dv)
 
@@ -315,7 +224,7 @@ function mmd_plus(G::SimpleGraph{Int})
     N = nv(G)
     degree_map = degree(G)
     maxmin = 0
-    while maxmin < N # N > 2
+    while maxmin < N
         dv, v = findmin(degree_map)
         maxmin = max(maxmin, dv)
 

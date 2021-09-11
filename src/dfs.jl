@@ -1,155 +1,57 @@
-export myBB
+export branch_and_bound_dfs
 
-###
-### A struct to aid searching for elimination orders.
-###
+#=
+This file contains an implementation of an anytime, branch and bound, depth first
+search for computing the treewidth of a graph. If the search doesn't complete within
+the allocated time, an upper bound is resturned representing the best solution the 
+algorithm was able to find.
 
-mutable struct UpperBound
-    tw::Int
-    order::Vector{Int}
-    lock::SpinLock
-end
+The algorithm is outlined by Gogate in the 2004 paper "A complete anytime algorithm
+for treewidth".
 
-struct LowerBounds
-    tabel::Dict{Set{Int64}, Int64}
-    lock::SpinLock
+Some of the methods mentioned in Yaun's 2011 paper "A Fast Parallel Branch and Bound 
+Algorithm for Treewidth" and Bodlaender's "Treewidth Computations 1 & 2" papers are 
+also used.
 
-    LowerBounds() = new(Dict{Set{Int64}, Int64}(), SpinLock())
-end
+Some methods were ommitted but will hopefully be added eventually.
+=#
 
-mutable struct DFSState
-    graph::SimpleGraph{Int64}
-    N::Int64
-    labels::Vector{Int64}
-
-    curr_order::Vector{Int64}
-    ub::UpperBound
-    lbs::LowerBounds
-
-    lbs_prune_at_depth::Vector{UInt64}
-    mmd_prune_at_depth::Vector{UInt64}
-    ub_prune_at_depth::Vector{UInt64}
-
-    finish_time::Float64
-    space_covered::Float64 # TODO: Try this as a BigFloat
-    nodes_visited::UInt64
-    depth::Int
-    rng::MersenneTwister
-end
-
-
-function DFSState(g::AbstractGraph, ub::UpperBound, lbs::LowerBounds, finish_time::Float64, seed::Int=42)
-    N = nv(g)
-    rng = MersenneTwister(seed)
-    initial_curr_order = collect(1:N)
-
-    DFSState(g, N, collect(1:N), 
-             initial_curr_order, ub, lbs, 
-             zeros(Int, N), zeros(Int, N), zeros(Int, N), 
-             finish_time, 0.0 , 0, 1, rng)
-end
-
-
-function Base.show(io::IO, s::DFSState)
-    compact = get(io, :compact, false)
-    if !compact
-        println(io, "The graph size was {nodes, edges} = ", s.graph)
-        println(io, "The best treewidth found was ", s.ub.tw)
-        println(io, "The number of nodes visted was ", s.nodes_visited)
-    else
-        show(io, (s.ub.tw, s.ub.order))
-    end
-end
-
-
-struct DFSReport
-    states::Vector{DFSState}
-    best_tw::Int
-    best_order::Vector{Int}
-
-    nodes_visited::UInt64
-    space_covered::Float64
-
-    duration::Float64
-    actual_time::Float64
-    heuristic_time::Float64
-    dfs_time::Float64
-
-    ub_pruned::Vector{UInt64}
-    lbs_pruned::Vector{UInt64}
-    mmd_pruned::Vector{UInt64}
-end
-
-
-function DFSReport(states::Vector{DFSState}, allocated_time, total_time, ub_time, dfs_time)
-    best_tw = states[1].ub.tw
-    best_order = copy(states[1].ub.order)
-
-    total_nodes_visited = sum([state.nodes_visited for state in states])
-    total_space_covered = sum([state.space_covered for state in states])
-
-    ub_pruned = sum([state.ub_prune_at_depth for state in states])
-    lbs_pruned = sum([state.lbs_prune_at_depth for state in states])
-    mmd_pruned = sum([state.mmd_prune_at_depth for state in states])
-
-    DFSReport(states, 
-              best_tw, 
-              best_order, 
-              total_nodes_visited, 
-              total_space_covered,
-              allocated_time,
-              total_time,
-              ub_time,
-              dfs_time,
-              ub_pruned,
-              lbs_pruned,
-              mmd_pruned)
-end
-
-
-function Base.show(io::IO, r::DFSReport)
-    compact = get(io, :compact, false)
-    if !compact
-        println(io, "")
-        println(io, "The graph size was {nodes, edges} = ", r.states[1].graph)
-        println(io, "The best treewidth found was ", r.best_tw)
-        println(io, "The number of nodes visted was ", r.nodes_visited)
-        println(io, "The fraction of the search space covered was (to machine precision) ", r.space_covered)
-        println(io, "Time:")
-        println(io, " allocated = ", r.duration, " actual = ", r.actual_time)
-        println(io, " heuristic = ", r.heuristic_time, " dfs = ", r.dfs_time)
-    else
-        show(io, (r.best_tw, r.best_order))
-    end
-end
-
-
+#=
+TODO: There seems to be a memory leak involving multiple threads and
+storing the tabel of lowerbounds (when one of them is removed the memory
+leak goes away). The leak results in the program OOM-ing when ran long enough.
+=#
 
 ###
 ### A branch and bound implementation
 ###
 
-function myBB(G::AbstractGraph, duration::Float64, seed::Int=42)
+"""
+branch_and_bound_dfs(G::AbstractGraph, duration::Float63, seed::Int=42)
+"""
+function branch_and_bound_dfs(G::AbstractGraph, duration::Float64, seed::Int=42)
     start_time = time()
     finish_time = start_time + duration
+    
     # Use a heuristic to get an initial upper bound on the treewidth.
-    initial_ub_order, initial_ub_tw = min_fill(G, seed)
-    # initial_ub_order, initial_ub_tw = collect(1:nv(G)), nv(G)
+    initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
     initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
     heurisitc_finish_time = time()
     println("The initial treewidth is ", initial_ub_tw)
 
     # Create a search state for each thread.
     lbs = LowerBounds()
-    states = [DFSState(deepcopy(G), initial_ub, lbs, finish_time, seed + t) for t = 1:nthreads()]
+    state = DFSState(deepcopy(G), initial_ub, lbs, finish_time, seed)
+    _, curr_tw = remove_simplicial_vertices!(state, 0)
+    states = [copy(state, seed + t) for t = 1:nthreads()]
 
     # Randomly distribute the vertices of G amongst the threads.
-    verts = shuffle(states[1].rng, collect(1:nv(G)))
-    verts = [[verts[i] for i = j:nthreads():nv(G)] for j = 1:nthreads()]
+    verts = shuffle(states[1].rng, collect(1:nv(state.graph)))
+    verts = [Int[verts[i] for i = j:nthreads():nv(state.graph)] for j = 1:nthreads()]
 
-    # Start each thread running a bb dfs.
+    # Start each thread running a bb-dfs.
     @threads for t = 1:nthreads()
-        bb(states[t], verts[t], 0)
+        bb(states[t], verts[t], curr_tw)
     end
     actual_finish_time = time()
 
@@ -161,36 +63,65 @@ function myBB(G::AbstractGraph, duration::Float64, seed::Int=42)
 end
 
 
+
+"""Performs the branch and bound step"""
 function bb(state::DFSState, verts::Vector{Int}, curr_tw::Int)
+    # Loop over all candidates for the next vertex in the current order.
     for (i, v) in enumerate(verts)
+
+        # Check if the algorithm has ran out of time and return if it has.
         if time() >= state.finish_time
-            state.space_covered *= 1/length(verts)
-            state.space_covered += (i-2)/length(verts) # -2 instead of -1 since i is incremented before check
+            if state.timed_out
+                state.space_covered *= 1/length(verts)
+                state.space_covered += (i-2)/length(verts) # -2 instead of -1 since i is incremented before check
+            else
+                state.timed_out = true
+            end
             break
         end
 
+        # Add the next vertex to the current order and update the treewidth.
         state.curr_order[state.depth] = state.labels[v]
         next_tw = max(curr_tw, degree(state.graph, v))
 
-        v_neighbours, edges_added = modify_graph!(state, v)
+        # Eliminate the vertex from the current graph.
+        v_neighbours, edges_added = eliminate!(state, v)
 
+        # Prune unless the current treewidth is less than the current upper bound.
         if curr_tw < state.ub.tw && check_lower_bounds!(state, curr_tw)
-            dfs(state, next_tw)
+
+            # Compute the vertices that need to be iterated over
+            # in the next branch and bound step using theorem 6.1
+            # in Gogate 2004.
+            next_verts = collect(i:nv(state.graph))
+            setdiff!(next_verts, v_neighbours)
+            if nv(state.graph) + 1 in v_neighbours
+                setdiff!(next_verts, v)
+            end
+
+            GC.safepoint() # This seems to mitigate the memory leak mentioned at the top somewhat.
+            
+            dfs(state, next_tw, next_verts)
         else
             if curr_tw >= state.ub.tw
                 state.ub_prune_at_depth[state.depth] += 1
             end
         end
 
-        unmodify_graph!(state, v, v_neighbours, edges_added)
+        # Restore the graph to its original state before returning.
+        un_eliminate!(state, v, v_neighbours, edges_added)
     end
 end
 
 
-function dfs(state::DFSState, curr_tw::Int)
+
+"""Performs the recursive depth first search step"""
+function dfs(state::DFSState, curr_tw::Int, next_verts::Vector{Int})
     state.depth += 1
     state.nodes_visited += 1
 
+    # Recursive base case: an n-vertex graph can't have a treewidth 
+    # larger than n-1.
     if nv(state.graph) - 1 <= curr_tw
         if curr_tw < state.ub.tw
             lock(state.ub.lock)
@@ -204,103 +135,101 @@ function dfs(state::DFSState, curr_tw::Int)
         end
 
     else
-        verts = randperm(state.rng, nv(state.graph))
-        I = sortperm([degree(state.graph, v) for v in verts])
-        verts = verts[I]
+        # Reduce the graph if possible before moving to the next branch and bound step.
+        removed_vertices, curr_tw = remove_simplicial_vertices!(state, curr_tw)
 
-        bb(state, verts, curr_tw)
+        # If simplicial vertices were removed, the vertices to be interated over
+        # in the next branch and bound step need to be re-computed.
+        if length(removed_vertices) > 0
+            next_verts = setdiff(collect(1:nv(state.graph)), removed_vertices[end][2])
+        end
+        shuffle!(state.rng, next_verts)
+        sort!(next_verts; by = v -> state.c_map[v])
+
+        bb(state, next_verts, curr_tw)
+
+        # Restore the graph to its original state before returning.
+        restore_simplicial_vertices!(state, removed_vertices)
     end
 
     state.depth -= 1
     state
 end
 
+
+###
+### functions to aid the branch and bound depth first search
+###
+
+"""Checks if pruning can be performed due to lower bounds"""
 function check_lower_bounds!(state::DFSState, curr_tw::Int)
+    # Compute a lower bound on the remaining graph and prune if
+    # it is equal or larger than the current upper bound. 
     if mmd(state.graph) >= state.ub.tw
         state.mmd_prune_at_depth[state.depth] += 1
         return false
     end
-    return true
 
-    # state_key = Set(state.curr_order[1:state.depth])
-    # state_lb = get(state.lbs.tabel, state_key, nothing)
+    # Below the pruning rule used by Yaun's tabel of lower bounds
+    # is used.
+    state_key = state.intermediate_graph_key
+    state_lb = get(state.lbs.tabel, state_key, nothing)
 
-    # if state_lb === nothing
-    #     lock(state.lbs.lock)
-    #     state_lb === nothing && (state.lbs.tabel[state_key] = curr_tw)
-    #     unlock(state.lbs.lock)
-    #     state_key = nothing
-    #     return true
+    if state_lb === nothing
+        lock(state.lbs.lock)
 
-    # else
-    #     if state_lb > curr_tw
-    #         lock(state.lbs.lock)
-    #         state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
-    #         unlock(state.lbs.lock)
-    #         state_key = nothing
-    #         return true
-    #     else
-    #         state.lbs_prune_at_depth[state.depth] += 1
-    #         state_key = nothing
-    #         return false
-    #     end
-    # end
-end
+        if !haskey(state.lbs.tabel, state_key)
+            state.lbs.tabel[state_key] = curr_tw
+        elseif state.lbs.tabel[state_key] > curr_tw
+            state.lbs.tabel[state_key] = curr_tw
+        end
 
+        unlock(state.lbs.lock)
+        return true
 
-
-###
-### functions to alter the graph while searching through elimination orders
-###
-
-function modify_graph!(state::DFSState, v::Int64)
-    G = state.graph
-    n = nv(G)
-    v_neighbours = copy(all_neighbors(G, v))
-
-    # connect neighbours of v together
-    edges_added = Tuple{Int, Int}[]
-    for i = 1:length(v_neighbours)-1
-        for j = i+1:length(v_neighbours)
-            if add_edge!(G, v_neighbours[i], v_neighbours[j])
-                append!(edges_added, [(v_neighbours[i], v_neighbours[j])])
-            end
+    else
+        if state_lb > curr_tw
+            lock(state.lbs.lock)
+            state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
+            unlock(state.lbs.lock)
+            return true
+        else
+            state.lbs_prune_at_depth[state.depth] += 1
+            return false
         end
     end
-
-    # remove v from G
-    rem_vertex!(G, v)
-
-    # update the labels array to have the correct order
-    tmp = state.labels[n]
-    state.labels[n] = state.labels[v]
-    state.labels[v] = tmp
-
-    v_neighbours, edges_added
 end
 
 
-function unmodify_graph!(state::DFSState, v::Int64, v_neighbours::Vector{Int64}, edges_to_remove::Vector{Tuple{Int, Int}})
-    G = state.graph
-    add_vertex!(G)
-    n = nv(G)
+"""Implements the simplicial vertex rule for graph reduction (see Gogate 2004)"""
+function remove_simplicial_vertices!(state::DFSState, curr_tw::Int)
+    removed_vertices = Tuple{Int, Vector{Int}, Vector{Tuple{Int, Int}}}[]
 
-    n_neighbours = copy(all_neighbors(G, v))
-    for u in n_neighbours
-        rem_edge!(G, u, v)
-        add_edge!(G, u, n)
+    v = next_simplicial_vertex(state)
+    while v !== nothing && nv(state.graph) - 1 > curr_tw
+        curr_tw = max(curr_tw, degree(state.graph, v))
+        state.curr_order[state.depth] = state.labels[v]
+        state.depth += 1
+
+        Nv, edges_added = eliminate!(state, v)
+        push!(removed_vertices, (v::Int, Nv, edges_added))
+
+        v = next_simplicial_vertex(state)
     end
 
-    for u in v_neighbours
-        add_edge!(G, u, v)
-    end
+    removed_vertices, curr_tw
+end
 
-    for (ui, uj) in edges_to_remove
-        rem_edge!(G, ui, uj)
+"""Restores the given simplicial vertices that were removed from the graph."""
+function restore_simplicial_vertices!(state::DFSState, 
+                                      removed_vertices::Vector{Tuple{Int, Vector{Int}, Vector{Tuple{Int, Int}}}})
+    state.depth -= length(removed_vertices)
+    for (v, Nv, edges_added) in Iterators.reverse(removed_vertices)
+        un_eliminate!(state, v, Nv, edges_added)
     end
+end
 
-    # Swap the labels back
-    tmp = state.labels[n]
-    state.labels[n] = state.labels[v]
-    state.labels[v] = tmp
+"""Returns the index of a simplicial vertex which can be removed."""
+function next_simplicial_vertex(state::DFSState)
+    findfirst(c_v -> c_v == 0, state.c_map[1:nv(state.graph)])
 end

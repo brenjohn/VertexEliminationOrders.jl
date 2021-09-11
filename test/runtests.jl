@@ -1,6 +1,8 @@
 using VertexEliminationOrders
 using Test
 
+import VertexEliminationOrders as VEO
+
 @testset "VertexEliminationOrders.jl" begin
     # Test the graph io.
     g = graph_from_gr("../examples/test.gr")

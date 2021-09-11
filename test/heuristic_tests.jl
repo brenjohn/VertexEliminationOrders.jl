@@ -6,15 +6,19 @@
     order, tw = min_fill(g)
     @test length(order) == nv(g)
 
+    # Test min fill sampling
+    order, tw = min_fill(g, 10)
+    @test length(order) == nv(g)
+
     # Test the min width heuristic.
     order, tw = min_width(g)
     @test length(order) == nv(g)
 
     # Test sampling version of min width.
-    order, tw = min_width_sampling(g, 10)
+    order, tw = min_width(g, 10)
     @test length(order) == nv(g)
 
-    # Test multi-threaded sampling version of min width.
-    order, tw = min_width_mt_sampling(g, 10)
-    @test length(order) == nv(g)
+    # Test maximum minimum degree heuristic for a lower bound.
+    lb = mmd(g)
+    @test lb <= tw
 end
