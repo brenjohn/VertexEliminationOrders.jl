@@ -18,16 +18,16 @@ on the treewidth of a graph.
 Use the min fill heuristic to find a vertex elimination order for g with
 a minimal treewidth.
 """
-function min_fill(g::AbstractGraph; seed::Int=42)
-    labels = collect(1:nv(g))
-    cliqueness_map = [cliqueness(g, v) for v in vertices(g)]
-    order = Array{Int, 1}(undef, nv(g))
+function min_fill(g::lg.AbstractGraph; seed::Int=42)
+    labels = collect(1:lg.nv(g))
+    cliqueness_map = [cliqueness(g, v) for v in lg.vertices(g)]
+    order = Array{Int, 1}(undef, lg.nv(g))
     tw = min_fill(MersenneTwister(seed), g, labels, cliqueness_map, order)
     order, tw
 end
 
 function min_fill(rng::AbstractRNG, 
-                  g::AbstractGraph, 
+                  g::lg.AbstractGraph, 
                   labels::Array{Int, 1}, 
                   cliqueness_map::Array{Int, 1}, 
                   order::Array{Int, 1})
@@ -35,12 +35,12 @@ function min_fill(rng::AbstractRNG,
     tw = 0
 
     i = 1
-    n = nv(g)
+    n = lg.nv(g)
     while n > 0
         c_map = @view cliqueness_map[1:n]
         candidates = findall(isequal(minimum(c_map)), c_map)
         v = rand(rng, candidates)
-        tw = max(tw, degree(g, v))
+        tw = max(tw, lg.degree(g, v))
         order[i] = labels[v]
         eliminate!(g, labels, cliqueness_map, v)
         n -= 1
@@ -59,9 +59,9 @@ heuristic and returns the best one.
 
 Sampling is multi-threaded.
 """
-function min_fill(g::AbstractGraph, samples::Integer; seed::Integer=42)
+function min_fill(g::lg.AbstractGraph, samples::Integer; seed::Integer=42)
     # Allocate memory for each thread.
-    N = nv(g)
+    N = lg.nv(g)
     rngs = [MersenneTwister(seed + threadid()) for i = 1:nthreads()]
     orders = [Array{Int, 1}(undef, N) for _ = 1:nthreads()]
     graphs = [deepcopy(g) for i = 1:nthreads()]
@@ -105,172 +105,175 @@ end
 ### Min Width Heuristic
 ###
 
-"""
-    min_width(g::AbstractGraph, seed::Union{Nothing, Int})
+# """
+#     min_width(g::AbstractGraph, seed::Union{Nothing, Int})
 
-Use the min width heuristic to find a vertex elimination order for g with
-a minimal treewidth.
-"""
-function min_width(g::AbstractGraph; seed::Union{Nothing, Int}=nothing)
-    labels = collect(1:nv(g))
-    order = Array{Int, 1}(undef, nv(g))
-    rng = seed isa Int ? MersenneTwister(seed) : MersenneTwister()
-    tw = min_width(rng, g, labels, order)
-    order, tw
-end
+# Use the min width heuristic to find a vertex elimination order for g with
+# a minimal treewidth.
+# """
+# function min_width(g::AbstractGraph; seed::Union{Nothing, Int}=nothing)
+#     labels = collect(1:nv(g))
+#     order = Array{Int, 1}(undef, nv(g))
+#     rng = seed isa Int ? MersenneTwister(seed) : MersenneTwister()
+#     tw = min_width(rng, g, labels, order)
+#     order, tw
+# end
 
-function min_width(rng::AbstractRNG, 
-                   g::AbstractGraph, 
-                   labels::Array{Int, 1}, 
-                   order::Array{Int, 1})
-    g = deepcopy(g)
-    tw = 0
+# function min_width(rng::AbstractRNG, 
+#                    g::AbstractGraph, 
+#                    labels::Array{Int, 1}, 
+#                    order::Array{Int, 1})
+#     g = deepcopy(g)
+#     tw = 0
 
-    i = 1
-    n = nv(g)
-    while i <= n
-        d_map = degree(g)
-        candidates = findall(isequal(minimum(d_map)), d_map)
-        v = rand(rng, candidates)
-        tw = max(tw, degree(g, v))
-        order[i] = labels[v]
-        eliminate!(g, labels, v)
-        i += 1
-    end
+#     i = 1
+#     n = nv(g)
+#     while i <= n
+#         d_map = degree(g)
+#         candidates = findall(isequal(minimum(d_map)), d_map)
+#         v = rand(rng, candidates)
+#         tw = max(tw, degree(g, v))
+#         order[i] = labels[v]
+#         eliminate!(g, labels, v)
+#         i += 1
+#     end
 
-    tw
-end
+#     tw
+# end
 
-"""
-    min_width(g::AbstractGraph, samples::Integer, seed::Integer=42)
+# """
+#     min_width(g::AbstractGraph, samples::Integer, seed::Integer=42)
 
-Samples a specified number of vertex elimination orders for g using the min fill 
-heuristic and returns the best one.
+# Samples a specified number of vertex elimination orders for g using the min fill 
+# heuristic and returns the best one.
 
-Sampling is multi-threaded.
-"""
-function min_width(g::AbstractGraph, samples::Int; seed::Int=42)
-    # Allocate memory for each thread.
-    orders = Array{Array{Int, 1}, 1}(undef, nthreads())
-    tws = Array{Int, 1}(undef, nthreads())
+# Sampling is multi-threaded.
+# """
+# function min_width(g::AbstractGraph, samples::Int; seed::Int=42)
+#     # Allocate memory for each thread.
+#     orders = Array{Array{Int, 1}, 1}(undef, nthreads())
+#     tws = Array{Int, 1}(undef, nthreads())
 
-    # Get each thread to sample elimination orders.
-    samples_per_thread = samples ÷ nthreads()
-    @threads for t = 1:nthreads()
-        orders[threadid()], tws[threadid()] = min_width_sampling(g, 
-                                                                samples_per_thread + ((samples % nthreads()) > 0); 
-                                                                seed = seed + t)
-    end
+#     # Get each thread to sample elimination orders.
+#     samples_per_thread = samples ÷ nthreads()
+#     @threads for t = 1:nthreads()
+#         orders[threadid()], tws[threadid()] = min_width_sampling(g, 
+#                                                                 samples_per_thread + ((samples % nthreads()) > 0); 
+#                                                                 seed = seed + t)
+#     end
 
-    # return the best result.
-    best = argmin(tws)
-    orders[best], tws[best]
-end
+#     # return the best result.
+#     best = argmin(tws)
+#     orders[best], tws[best]
+# end
 
-function min_width_sampling(g::AbstractGraph, N_samples::Int; seed::Int=42)
-    # Create an rng and allocate memory.
-    rng = MersenneTwister(seed)
+# function min_width_sampling(g::AbstractGraph, N_samples::Int; seed::Int=42)
+#     # Create an rng and allocate memory.
+#     rng = MersenneTwister(seed)
 
-    best_order = Array{Int, 1}(undef, nv(g))
-    best_tw = nv(g)
+#     best_order = Array{Int, 1}(undef, nv(g))
+#     best_tw = nv(g)
     
-    curr_order = Array{Int, 1}(undef, nv(g))
+#     curr_order = Array{Int, 1}(undef, nv(g))
 
-    # Sample the given number of elimination orders.
-    for i = 1:N_samples
-        curr_tw = min_width(rng, deepcopy(g), collect(1:nv(g)), curr_order)
-        if curr_tw < best_tw
-            best_tw = curr_tw
-            best_order[:] = curr_order[:]
-        end
-    end
+#     # Sample the given number of elimination orders.
+#     for i = 1:N_samples
+#         curr_tw = min_width(rng, deepcopy(g), collect(1:nv(g)), curr_order)
+#         if curr_tw < best_tw
+#             best_tw = curr_tw
+#             best_order[:] = curr_order[:]
+#         end
+#     end
 
-    # Return the best result.
-    best_order, best_tw
-end
+#     # Return the best result.
+#     best_order, best_tw
+# end
 
 
 ###
 ### Lower bound heuristics (see Bodlaender 2011)
 ###
 
+mmd(g::lg.SimpleGraph) = mmd(Graph(g))
+
 """Maximum Minimum Degree"""
-function mmd(G::SimpleGraph{Int})
-    N = nv(G)
-    degree_map = degree(G)
-    maxmin = 0
+function mmd(g::Graph)
+    N = g.num_vertices - 0x0001 # max degree possible. 
+    degree_map = copy(g.degree)
+    degree_map[@view g.vertices[g.num_vertices+1:end]] .= typemax(UInt16)
+    maxmin = 0x0000
     while maxmin < N
         dv, v = findmin(degree_map)
         maxmin = max(maxmin, dv)
 
-        @inbounds degree_map[v] = typemax(Int)
-        for u in all_neighbors(G, v)
-            @inbounds degree_map[u] -= 1
+        @inbounds degree_map[v] = typemax(UInt16)
+        for u in neighbours(g, v)
+            @inbounds degree_map[u] -= 0x0001
         end
 
-        N -= 1
+        N -= 0x0001
     end
 
     maxmin
 end
 
-"""
-Maximum Minimum Degree +
+# """
+# Maximum Minimum Degree +
 
-TODO: This implementation is incorrect.
-problem with neighbours arrays after vertices merged.
-"""
-function mmd_plus(G::SimpleGraph{Int})
-    N = nv(G)
-    degree_map = degree(G)
-    maxmin = 0
-    while maxmin < N
-        dv, v = findmin(degree_map)
-        maxmin = max(maxmin, dv)
+# TODO: This implementation is incorrect.
+# problem with neighbours arrays after vertices merged.
+# """
+# function mmd_plus(G::SimpleGraph{Int})
+#     N = nv(G)
+#     degree_map = degree(G)
+#     maxmin = 0
+#     while maxmin < N
+#         dv, v = findmin(degree_map)
+#         maxmin = max(maxmin, dv)
 
-        w = 0
-        dw = N
-        for wi in all_neighbors(G, v) # not correct after vertices 'merged'
-            @inbounds if degree_map[wi] < dw
-                @inbounds dw = degree_map[wi]
-                w = wi
-            end
-        end
+#         w = 0
+#         dw = N
+#         for wi in all_neighbors(G, v) # not correct after vertices 'merged'
+#             @inbounds if degree_map[wi] < dw
+#                 @inbounds dw = degree_map[wi]
+#                 w = wi
+#             end
+#         end
 
-        if w != 0 # This check can be removed if we assume the grraph is connected.
-            for u in all_neighbors(G, v)
-                if u in all_neighbors(G, w) 
-                    @inbounds degree_map[u] -= 1
-                else
-                    @inbounds degree_map[w] += 1
-                end
-            end
-        end
-        degree_map[v] = typemax(Int)
+#         if w != 0 # This check can be removed if we assume the grraph is connected.
+#             for u in all_neighbors(G, v)
+#                 if u in all_neighbors(G, w) 
+#                     @inbounds degree_map[u] -= 1
+#                 else
+#                     @inbounds degree_map[w] += 1
+#                 end
+#             end
+#         end
+#         degree_map[v] = typemax(Int)
 
-        N -= 1
-    end
+#         N -= 1
+#     end
 
-    maxmin
-end
+#     maxmin
+# end
 
-"""
-Maximum Minimum Degree plus
+# """
+# Maximum Minimum Degree plus
 
-This implementation is correct but slow
-"""
-function mmd_plus_correct(G::SimpleGraph{Int})
-    H = deepcopy(G)
-    maxmin = 0
+# This implementation is correct but slow
+# """
+# function mmd_plus_correct(G::SimpleGraph{Int})
+#     H = deepcopy(G)
+#     maxmin = 0
 
-    while nv(H) > 2
-        v = argmin(degree(H))
-        maxmin = max(maxmin, degree(H, v))
+#     while nv(H) > 2
+#         v = argmin(degree(H))
+#         maxmin = max(maxmin, degree(H, v))
         
-        ui = argmin([degree(H, n) for n in all_neighbors(H, v)])
-        u = all_neighbors(H, v)[ui]
-        merge_vertices!(H, [v, u])
-    end
+#         ui = argmin([degree(H, n) for n in all_neighbors(H, v)])
+#         u = all_neighbors(H, v)[ui]
+#         merge_vertices!(H, [v, u])
+#     end
 
-    maxmin
-end
+#     maxmin
+# end

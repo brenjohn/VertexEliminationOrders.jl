@@ -29,29 +29,31 @@ leak goes away). The leak results in the program OOM-ing when ran long enough.
 """
 branch_and_bound_dfs(G::AbstractGraph, duration::Float63, seed::Int=42)
 """
-function branch_and_bound_dfs(G::AbstractGraph, duration::Float64, seed::Int=42)
+function branch_and_bound_dfs(G::lg.AbstractGraph, duration::Float64, seed::Int=42)
     start_time = time()
     finish_time = start_time + duration
     
     # Use a heuristic to get an initial upper bound on the treewidth.
-    initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
+    # initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
+    initial_ub_order, initial_ub_tw = collect(1:lg.nv(G)), 500
     initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
     heurisitc_finish_time = time()
     println("The initial treewidth is ", initial_ub_tw)
 
     # Create a search state for each thread.
     lbs = LowerBounds()
-    state = DFSState(deepcopy(G), initial_ub, lbs, finish_time, seed)
-    _, curr_tw = remove_simplicial_vertices!(state, 0)
+    state = DFSState(Graph(G), initial_ub, lbs, finish_time, seed)
+    # _, curr_tw = remove_simplicial_vertices!(state, 0)
+    curr_tw = 0x0000
     states = [copy(state, seed + t) for t = 1:nthreads()]
 
     # Randomly distribute the vertices of G amongst the threads.
-    verts = shuffle(states[1].rng, collect(1:nv(state.graph)))
-    verts = [Int[verts[i] for i = j:nthreads():nv(state.graph)] for j = 1:nthreads()]
+    verts = shuffle(states[1].rng, copy(state.graph.vertices))
+    verts = [UInt16[verts[i] for i = j:nthreads():state.graph.num_vertices] for j = 1:nthreads()]
 
     # Start each thread running a bb-dfs.
     @threads for t = 1:nthreads()
-        bb(states[t], verts[t], curr_tw)
+        _bb(states[t], curr_tw, verts[t])
     end
     actual_finish_time = time()
 
@@ -63,72 +65,54 @@ function branch_and_bound_dfs(G::AbstractGraph, duration::Float64, seed::Int=42)
 end
 
 
+function _bb(state::DFSState, curr_tw::UInt16, verts::Vector{UInt16})
+    for v in verts
+        bb(state, curr_tw, v)
+    end
+    nothing
+end
+
 
 """Performs the branch and bound step"""
-function bb(state::DFSState, verts::Vector{Int}, curr_tw::Int)
-    # Loop over all candidates for the next vertex in the current order.
-    for (i, v) in enumerate(verts)
+function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
+    # Add the next vertex to the current order and update the treewidth.
+    state.curr_order[state.depth] = v
+    next_tw = max(curr_tw, degree(state.graph, v))
 
-        # Check if the algorithm has ran out of time and return if it has.
-        if time() >= state.finish_time
-            if state.timed_out
-                state.space_covered *= 1/length(verts)
-                state.space_covered += (i-2)/length(verts) # -2 instead of -1 since i is incremented before check
-            else
-                state.timed_out = true
-            end
-            break
-        end
-
-        # Add the next vertex to the current order and update the treewidth.
-        state.curr_order[state.depth] = state.labels[v]
-        next_tw = max(curr_tw, degree(state.graph, v))
+    # Prune unless the current treewidth is less than the current upper bound.
+    if next_tw < state.ub.tw #&& check_lower_bounds!(state, curr_tw)
 
         # Eliminate the vertex from the current graph.
-        v_neighbours, edges_added = eliminate!(state, v)
+        edges_added = eliminate!(state, v)
 
-        # Prune unless the current treewidth is less than the current upper bound.
-        if curr_tw < state.ub.tw && check_lower_bounds!(state, curr_tw)
-
-            # Compute the vertices that need to be iterated over
-            # in the next branch and bound step using theorem 6.1
-            # in Gogate 2004.
-            next_verts = collect(i:nv(state.graph))
-            setdiff!(next_verts, v_neighbours)
-            if nv(state.graph) + 1 in v_neighbours
-                setdiff!(next_verts, v)
-            end
-
-            GC.safepoint() # This seems to mitigate the memory leak mentioned at the top somewhat.
-            
-            dfs(state, next_tw, next_verts)
-        else
-            if curr_tw >= state.ub.tw
-                state.ub_prune_at_depth[state.depth] += 1
-            end
-        end
-
+        # GC.safepoint() # This seems to mitigate the memory leak mentioned at the top somewhat.
+        
+        dfs(state, next_tw)
+        
         # Restore the graph to its original state before returning.
-        un_eliminate!(state, v, v_neighbours, edges_added)
+        restore_last_eliminated!(state, edges_added)
+    else
+        if curr_tw >= state.ub.tw
+            state.ub_prune_at_depth[state.depth] += 1
+        end
     end
 end
 
 
-
 """Performs the recursive depth first search step"""
-function dfs(state::DFSState, curr_tw::Int, next_verts::Vector{Int})
+function dfs(state::DFSState, curr_tw::T) where T <: UInt16
     state.depth += 1
     state.nodes_visited += 1
 
     # Recursive base case: an n-vertex graph can't have a treewidth 
     # larger than n-1.
-    if nv(state.graph) - 1 <= curr_tw
+    if state.graph.num_vertices - 0x0001 <= curr_tw
         if curr_tw < state.ub.tw
             lock(state.ub.lock)
             if curr_tw < state.ub.tw
                 println("Thread $(threadid()): The treewidth is now ", curr_tw)
-                state.curr_order[state.depth:end] = state.labels[1:nv(state.graph)]
-                state.ub.order[:] = state.curr_order[:]
+                state.curr_order[state.depth:end] .= vertices(state.graph)[:]
+                copy!(state.ub.order, state.curr_order)
                 state.ub.tw = curr_tw
             end
             unlock(state.ub.lock)
@@ -136,24 +120,29 @@ function dfs(state::DFSState, curr_tw::Int, next_verts::Vector{Int})
 
     else
         # Reduce the graph if possible before moving to the next branch and bound step.
-        removed_vertices, curr_tw = remove_simplicial_vertices!(state, curr_tw)
+        # removed_vertices, curr_tw = remove_simplicial_vertices!(state, curr_tw)
 
-        # If simplicial vertices were removed, the vertices to be interated over
-        # in the next branch and bound step need to be re-computed.
-        if length(removed_vertices) > 0
-            next_verts = setdiff(collect(1:nv(state.graph)), removed_vertices[end][2])
+        # Compute the vertices that need to be iterated over
+        # in the next branch and bound step using theorem 6.1
+        # in Gogate 2004.
+        N = state.N - state.depth
+        verts = state.branches[state.depth]
+        copy!(verts, vertices(state.graph))
+
+        # Loop over all candidates for the next vertex in the current order.
+        for i = 0x0001:N
+            v = verts[i]
+            timed_out(state, N, i) && break
+
+            bb(state, curr_tw, v)
         end
-        shuffle!(state.rng, next_verts)
-        sort!(next_verts; by = v -> state.c_map[v])
-
-        bb(state, next_verts, curr_tw)
 
         # Restore the graph to its original state before returning.
-        restore_simplicial_vertices!(state, removed_vertices)
+        # restore_simplicial_vertices!(state, removed_vertices)
     end
 
     state.depth -= 1
-    state
+    nothing
 end
 
 
@@ -162,7 +151,7 @@ end
 ###
 
 """Checks if pruning can be performed due to lower bounds"""
-function check_lower_bounds!(state::DFSState, curr_tw::Int)
+function check_lower_bounds!(state::DFSState, curr_tw::UInt16)
     # Compute a lower bound on the remaining graph and prune if
     # it is equal or larger than the current upper bound. 
     if mmd(state.graph) >= state.ub.tw
@@ -232,4 +221,18 @@ end
 """Returns the index of a simplicial vertex which can be removed."""
 function next_simplicial_vertex(state::DFSState)
     findfirst(c_v -> c_v == 0, state.c_map[1:nv(state.graph)])
+end
+
+"""Check if the algorithm has ran out of time"""
+function timed_out(state::DFSState, N::UInt16, i::Integer)
+    if time() >= state.finish_time
+        if state.timed_out
+            state.space_covered *= 1/N
+            state.space_covered += (i-2)/N # -2 instead of -1 since i is incremented before check
+        else
+            state.timed_out = true
+        end
+        return true
+    end
+    false
 end

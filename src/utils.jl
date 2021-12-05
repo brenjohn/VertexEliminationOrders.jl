@@ -1,6 +1,5 @@
 export find_treewidth_from_order
 export find_similar_groups
-export cliqueness
 export graph_from_gr, graph_to_gr
 
 
@@ -44,169 +43,161 @@ function graph_to_gr(G::lg.AbstractGraph, filename::String)
 end
 
 
-# ###
-# ### functions to analyse elimination orders.
-# ###
+###
+### functions to analyse elimination orders.
+###
 
-# """
-#     find_treewidth_from_order(G::AbstractGraph, order::Array{Symbol, 1})
+"""
+    find_treewidth_from_order(G::AbstractGraph, order::Array{Symbol, 1})
 
-# Return the treewidth of `G` with respect to the elimination order in `order`.
-# """
-# function find_treewidth_from_order(G::lg.AbstractGraph, order::Array{Int, 1})
-#     G = deepcopy(G)
-#     labels = collect(1:nv(G))
-#     τ = 0
-#     for v_label in order
-#         v = findfirst(vl -> vl == v_label, labels)
-#         τ = max(τ, degree(G, v))
-#         eliminate!(G, labels, v)
-
-#         lb = mmd_plus(G)
-#         if lb >= 7
-#             println("Oops: lb is ", lb)
-#         end
-#     end
-#     τ
-# end
+Return the treewidth of `G` with respect to the elimination order in `order`.
+"""
+function find_treewidth_from_order(G::lg.AbstractGraph, order::Array{Int, 1})
+    G = deepcopy(G)
+    labels = collect(1:lg.nv(G))
+    τ = 0
+    for v_label in order
+        v = findfirst(vl -> vl == v_label, labels)
+        τ = max(τ, lg.degree(G, v))
+        eliminate!(G, labels, v)
+    end
+    τ
+end
 
 
-# ###
-# ### Functions to analyse a graph.
-# ###
+###
+### Functions to analyse a graph.
+###
 
-# """Return a vector containing the similar groups of G as defined by Yaun_2011"""
-# function find_similar_groups(G::SimpleGraph{Int})
-#     groups = Vector{Int}[]
-#     for v in vertices(G)
-#         v_in_a_group = false
-#         for group in groups
-#             if are_similar(G, group[1], v)
-#                 push!(group, v)
-#                 v_in_a_group = true
-#                 break
-#             end
-#         end
-#         v_in_a_group || push!(groups, [v])
-#     end
+"""Return a vector containing the similar groups of G as defined by Yaun_2011"""
+function find_similar_groups(G::lg.SimpleGraph{Int})
+    groups = Vector{Int}[]
+    for v in lg.vertices(G)
+        v_in_a_group = false
+        for group in groups
+            if are_similar(G, group[1], v)
+                push!(group, v)
+                v_in_a_group = true
+                break
+            end
+        end
+        v_in_a_group || push!(groups, [v])
+    end
 
-#     groups
-# end
+    groups
+end
 
-# function are_similar(G::SimpleGraph, u::Int, v::Int)
-#     return Set(setdiff(all_neighbors(G, u), [v])) == Set(setdiff(all_neighbors(G, v), [u]))
-# end
+function are_similar(G::lg.SimpleGraph, u::Int, v::Int)
+    return Set(setdiff(lg.all_neighbors(G, u), [v])) == Set(setdiff(lg.all_neighbors(G, v), [u]))
+end
 
-# """
-#     cliqueness(G::AbstractGraph, v::Integer)
+"""
+    cliqueness(G::AbstractGraph, v::Integer)
+Return the number of edges that need to be added to `G` in order to make the neighborhood of 
+vertex `v` a clique.
+"""
+function cliqueness(g::lg.AbstractGraph, v::Integer)::Int
+    neighborhood = lg.all_neighbors(g, v)::Array{Int64, 1}
+    count = 0
+    for i in 1:length(neighborhood)-1
+        for j in i+1:length(neighborhood)
+            vi = neighborhood[i]
+            ui = neighborhood[j]
+            if !lg.has_edge(g, ui, vi)::Bool
+                count += 1
+            end
+        end
+    end
+    count
+end
 
-# Return the number of edges that need to be added to `G` in order to make the neighborhood of 
-# vertex `v` a clique.
-# """
-# function cliqueness(g::AbstractGraph, v::Integer)::Int
-#     neighborhood = all_neighbors(g, v)::Array{Int64, 1}
-#     count = 0
-#     for i in 1:length(neighborhood)-1
-#         for j in i+1:length(neighborhood)
-#             vi = neighborhood[i]
-#             ui = neighborhood[j]
-#             if !has_edge(g, ui, vi)::Bool
-#                 count += 1
-#             end
-#         end
-#     end
-#     count
-# end
 
+###
+### Functions to modify a graph.
+###
 
-# ###
-# ### Functions to modify a graph.
-# ###
+"""
+    eliminate!(graph, labels, vertex)
 
-# """
-#     eliminate!(graph, labels, vertex)
+Connects the neighbours of the given vertex into a clique before removing 
+it from the graph.
 
-# Connects the neighbours of the given vertex into a clique before removing 
-# it from the graph.
+The array of vertex labels are also updated to reflect the 
+reording of vertex indices when the graph is updated.
+"""
+function eliminate!(g::lg.AbstractGraph, labels, v)
+    Nᵥ = lg.all_neighbors(g, v)::Array{Int64, 1}
+    for i = 1:length(Nᵥ)-1
+        vi = Nᵥ[i]
+        for j = i+1:length(Nᵥ)
+            vj = Nᵥ[j]
+            lg.add_edge!(g, vi, vj)
+        end
+    end
 
-# The array of vertex labels are also updated to reflect the 
-# reording of vertex indices when the graph is updated.
-# """
-# function eliminate!(g::AbstractGraph, labels, v)
-#     Nᵥ = all_neighbors(g, v)::Array{Int64, 1}
-#     for i = 1:length(Nᵥ)-1
-#         vi = Nᵥ[i]
-#         for j = i+1:length(Nᵥ)
-#             vj = Nᵥ[j]
-#             add_edge!(g, vi, vj)
-#         end
-#     end
+    lg.rem_vertex!(g, v)
+    labels[v] = labels[end]
+    pop!(labels)
+    g
+end
 
-#     rem_vertex!(g, v)
-#     labels[v] = labels[end]
-#     pop!(labels)
-#     g
-# end
+"""
+    eliminate!(graph, labels, vertex)
+Connects the neighbours of the given vertex into a clique before removing 
+it from the graph.
+The arrays of vertex labels and cliqueness are also updated to reflect the 
+reording of vertex indices when the graph is updated.
+"""
+function eliminate!(g::lg.AbstractGraph, labels, c_map, v)
+    Nᵥ = lg.all_neighbors(g, v)::Array{Int64, 1}
+    for i = 1:length(Nᵥ)-1
+        vi = Nᵥ[i]
+        for j = i+1:length(Nᵥ)
+            vj = Nᵥ[j]
 
-# """
-#     eliminate!(graph, labels, vertex)
+            # Try add an edge connecting vi and ui. If successful, update `c_map`.
+            edge_added = lg.add_edge!(g, vi, vj)
+            if edge_added
+                # Common neighbours of vi and vj have one less edge to add
+                # when being eliminated after vi and ui are connected.
+                Nvi = lg.all_neighbors(g, vi)::Array{Int64, 1}
+                Nvj = lg.all_neighbors(g, vj)::Array{Int64, 1}
+                for n in Nvi
+                    if n in Nvj
+                        c_map[n] -= 1
+                    end
+                end
 
-# Connects the neighbours of the given vertex into a clique before removing 
-# it from the graph.
+                # ui and vi are now neighbours so their cliqueness may increase.
+                for n in Nvi
+                    if !(n == vj) && !(lg.has_edge(g, n, vj)::Bool)
+                        c_map[vi] += 1
+                    end
+                end
+                for n in Nvj
+                    if !(n == vi) && !(lg.has_edge(g, n, vi)::Bool)
+                        c_map[vj] += 1
+                    end
+                end
+            end
+        end
+    end
 
-# The arrays of vertex labels and cliqueness are also updated to reflect the 
-# reording of vertex indices when the graph is updated.
-# """
-# function eliminate!(g::AbstractGraph, labels, c_map, v)
-#     Nᵥ = all_neighbors(g, v)::Array{Int64, 1}
-#     for i = 1:length(Nᵥ)-1
-#         vi = Nᵥ[i]
-#         for j = i+1:length(Nᵥ)
-#             vj = Nᵥ[j]
+    # Removing v from G means it's also removed from its neighbour's neighbourhood, so their 
+    # cliqueness may be reduced.
+    for n in Nᵥ
+        Nₙ = lg.all_neighbors(g, n)::Array{Int64, 1}
+        for u in Nₙ
+            if !(u == v)
+                if !lg.has_edge(g, v, u)
+                    c_map[n] -= 1
+                end
+            end
+        end
+    end
 
-#             # Try add an edge connecting vi and ui. If successful, update `c_map`.
-#             edge_added = add_edge!(g, vi, vj)
-#             if edge_added
-#                 # Common neighbours of vi and vj have one less edge to add
-#                 # when being eliminated after vi and ui are connected.
-#                 Nvi = all_neighbors(g, vi)::Array{Int64, 1}
-#                 Nvj = all_neighbors(g, vj)::Array{Int64, 1}
-#                 for n in Nvi
-#                     if n in Nvj
-#                         c_map[n] -= 1
-#                     end
-#                 end
-
-#                 # ui and vi are now neighbours so their cliqueness may increase.
-#                 for n in Nvi
-#                     if !(n == vj) && !(has_edge(g, n, vj)::Bool)
-#                         c_map[vi] += 1
-#                     end
-#                 end
-#                 for n in Nvj
-#                     if !(n == vi) && !(has_edge(g, n, vi)::Bool)
-#                         c_map[vj] += 1
-#                     end
-#                 end
-#             end
-#         end
-#     end
-
-#     # Removing v from G means it's also removed from its neighbour's neighbourhood, so their 
-#     # cliqueness may be reduced.
-#     for n in Nᵥ
-#         Nₙ = all_neighbors(g, n)::Array{Int64, 1}
-#         for u in Nₙ
-#             if !(u == v)
-#                 if !has_edge(g, v, u)
-#                     c_map[n] -= 1
-#                 end
-#             end
-#         end
-#     end
-
-#     rem_vertex!(g, v)
-#     c_map[v] = c_map[end]
-#     labels[v] = labels[end]
-#     g
-# end
+    lg.rem_vertex!(g, v)
+    c_map[v] = c_map[end]
+    labels[v] = labels[end]
+    g
+end
