@@ -1,4 +1,9 @@
-export Graph, neighbours, neighbourhood, degree
+module Graphs
+
+import LightGraphs as lg
+
+export Graph, vertices, neighbours, neighbourhood, degree, lg
+export eliminate!, restore_last_eliminated!
 
 ###
 ### Graph struct
@@ -207,4 +212,6 @@ function find_index(A::AbstractVector{T}, v::T)::Int64 where T
         i += 1
     end
     i
+end
+
 end

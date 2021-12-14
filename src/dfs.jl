@@ -154,7 +154,7 @@ end
 function check_lower_bounds!(state::DFSState, curr_tw::UInt16)
     # Compute a lower bound on the remaining graph and prune if
     # it is equal or larger than the current upper bound. 
-    if mmd(state.graph) >= state.ub.tw
+    if mmd(state) >= state.ub.tw
         state.mmd_prune_at_depth[state.depth] += 1
         return false
     end

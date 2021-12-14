@@ -33,7 +33,7 @@ queue: [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]
 removed----       \--min
 =#
 
-export MMDQueue, pop!, decrement!
+export MMDQueue, initialise_mmdqueue!, pull!, decrement!
 
 """
 A custom priority queue optimised for implementing the mmd heuristic.
@@ -52,15 +52,37 @@ mutable struct MMDQueue
 end
 
 function MMDQueue(vertices::Vector{UInt16}, degrees::Vector{UInt16})
-    I = sortperm(vertices; by=v -> degrees[v])
     N = length(vertices)
+    I = sortperm(vertices; by=v -> degrees[v])
 
     queue = Array{Pair{UInt16, UInt16}, 1}(undef, N+1)
     keys = similar(vertices)
     bags = fill(UInt16(N+1), N)
 
-    bag = 0
-    for (i, vi) in enumerate(I)
+    pq = MMDQueue(queue, keys, bags, 0x0001)
+    initialise_mmdqueue!(pq, I, vertices, degrees)
+
+    pq
+end
+
+"""
+Initialises the given MMDQueue to hold the given vertices 
+in order of increasing degree.
+
+I is assumed to hold permutation of indices which puts
+the vertices into the correct order.
+"""
+function initialise_mmdqueue!(pq::MMDQueue,
+                            I::AbstractArray, 
+                            vertices::AbstractArray, 
+                            degrees::Vector{UInt16})
+    queue = pq.queue
+    keys = pq.keys
+    bags = pq.bags
+
+    bag = 0x0000
+    for i = 0x0001:UInt16(length(vertices))
+        vi = I[i]
         v = vertices[vi]
         d = degrees[v]
         queue[i] = Pair(v, d)
@@ -68,20 +90,21 @@ function MMDQueue(vertices::Vector{UInt16}, degrees::Vector{UInt16})
 
         if d >= bag
             bags[bag+1:d+1] .= i
-            bag = d + 1
+            bag = d + 0x0001
         end
     end
 
-    MMDQueue(queue, keys, bags, 0x0001)
+    pq.min = 0x0001
+    nothing
 end
 
 """
-    pop!(q::MMDQueue)
+    pull!(q::MMDQueue)
 
 Return the element with highest priority and increment all
 bag boundaries to point to the next highest priority element.
 """
-function pop!(q::MMDQueue)
+function pull!(q::MMDQueue)
     p = q.queue[q.min]
     q.min += 0x0001
     q.bags[0x0001:p.second+0x0001] .= q.min

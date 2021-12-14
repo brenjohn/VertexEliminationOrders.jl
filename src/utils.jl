@@ -59,7 +59,7 @@ function find_treewidth_from_order(G::lg.AbstractGraph, order::Array{Int, 1})
     for v_label in order
         v = findfirst(vl -> vl == v_label, labels)
         τ = max(τ, lg.degree(G, v))
-        eliminate!(G, labels, v)
+        lg_eliminate!(G, labels, v)
     end
     τ
 end
@@ -125,7 +125,7 @@ it from the graph.
 The array of vertex labels are also updated to reflect the 
 reording of vertex indices when the graph is updated.
 """
-function eliminate!(g::lg.AbstractGraph, labels, v)
+function lg_eliminate!(g::lg.AbstractGraph, labels, v)
     Nᵥ = lg.all_neighbors(g, v)::Array{Int64, 1}
     for i = 1:length(Nᵥ)-1
         vi = Nᵥ[i]
@@ -148,7 +148,7 @@ it from the graph.
 The arrays of vertex labels and cliqueness are also updated to reflect the 
 reording of vertex indices when the graph is updated.
 """
-function eliminate!(g::lg.AbstractGraph, labels, c_map, v)
+function lg_eliminate!(g::lg.AbstractGraph, labels, c_map, v)
     Nᵥ = lg.all_neighbors(g, v)::Array{Int64, 1}
     for i = 1:length(Nᵥ)-1
         vi = Nᵥ[i]

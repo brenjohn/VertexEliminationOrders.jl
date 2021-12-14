@@ -4,7 +4,7 @@ implementation.
 =#
 
 ###
-### Structs to aid searching for elimination orders.
+### Structs to hold upper and lower bounds on the treewidth of a graph.
 ###
 
 """A struct to hold the current upper bound of the branch and bound search."""
@@ -22,6 +22,11 @@ struct LowerBounds
     LowerBounds() = new(Dict{BitVector, UInt16}(), SpinLock())
 end
 
+
+###
+### A struct to maintain the search state of a depth first search through elimination orders.
+###
+
 """Represents the search state of a single instance of the branch and bound search."""
 mutable struct DFSState
     graph::Graph                       # The graph corresponding to the current state.
@@ -35,6 +40,9 @@ mutable struct DFSState
     lbs::LowerBounds                   # A struct holding the lower bounds found so far (See Yaun 2011)
 
     branches::Vector{Vector{UInt16}}   # A vector of vetrices to search for each node depth
+
+    pq::MMDQueue                       #
+    I::Vector{UInt16}                  # 
 
     # Some varibales to record where pruning happends (for introspection)
     lbs_prune_at_depth::Vector{UInt64}
@@ -58,8 +66,11 @@ function DFSState(g::Graph, ub::UpperBound, lbs::LowerBounds, finish_time::Float
 
     branches = [Vector{UInt16}(undef, N-i) for i = 0:N-2]
 
+    pq = MMDQueue(g.vertices, g.degree) 
+    I = similar(g.degree)
+
     DFSState(g, N, falses(N),
-             initial_curr_order, ub, lbs, branches,
+             initial_curr_order, ub, lbs, branches, pq, I,
              zeros(UInt64, N), zeros(UInt64, N), zeros(UInt64, N), 
              finish_time, false, 0.0, 0, 1, rng)
 end
@@ -67,7 +78,7 @@ end
 """Return a copy of the given DFSState."""
 function Base.copy(s::DFSState, seed::Int=42)
     DFSState(deepcopy(s.graph), s.N, copy(s.intermediate_graph_key),
-             copy(s.curr_order), s.ub, s.lbs, deepcopy(s.branches),
+             copy(s.curr_order), s.ub, s.lbs, deepcopy(s.branches), deepcopy(s.pq), copy(s.I),
              zeros(UInt64, s.N), zeros(UInt64, s.N), zeros(UInt64, s.N),
              s.finish_time, false, 0.0, 0, s.depth, MersenneTwister(seed))
 end
@@ -83,6 +94,11 @@ function Base.show(io::IO, s::DFSState)
         show(io, (s.ub.tw, s.ub.order))
     end
 end
+
+
+###
+### A struct to hold the results of a depth first search.
+###
 
 """Holds the results of a depth first search"""
 struct DFSReport
@@ -163,7 +179,7 @@ Eliminates vertex 'v' from the given state and update all its relevant variables
 Returns a vector of neighbours of v and the edges added when v was eliminated. These can
 be used to restore the eliminated vertex.
 """
-function eliminate!(state::DFSState, v::UInt16)
+function Graphs.eliminate!(state::DFSState, v::UInt16)
     state.intermediate_graph_key[v] = true
     eliminate!(state.graph, v)
 end
@@ -174,10 +190,27 @@ end
 
 Restores a vertex 'v' which was eliminated to form the given 'state'.
 """
-function restore_last_eliminated!(state::DFSState,
+function Graphs.restore_last_eliminated!(state::DFSState,
                                    edges_to_remove::Vector{Tuple{UInt16, UInt16}})
     restore_last_eliminated!(state.graph, edges_to_remove)
     v = state.graph.vertices[state.graph.num_vertices]
     state.intermediate_graph_key[v] = false
     nothing
+end
+
+###
+### 
+###
+
+"""Use the mmd heuristic on the given state graph"""
+function mmd(state::DFSState)
+    g = state.graph
+    verts = vertices(g)
+
+    I = @view state.I[1:g.num_vertices]
+    by(v) = g.degree[v]
+    sortperm!(I, verts; by=by, alg=QuickSort)
+
+    initialise_mmdqueue!(state.pq, I, verts, g.degree)
+    mmd(state.graph, state.pq)
 end
