@@ -84,10 +84,11 @@ function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
 
         # Eliminate the vertex from the current graph.
         edges_added = eliminate!(state, v)
-
-        # GC.safepoint() # This seems to mitigate the memory leak mentioned at the top somewhat.
+        state.nodes_visited += 1
         
-        dfs(state, next_tw)
+        if check_lower_bounds!(state, next_tw)
+            dfs(state, next_tw)
+        end
         
         # Restore the graph to its original state before returning.
         restore_last_eliminated!(state, edges_added)
@@ -102,7 +103,6 @@ end
 """Performs the recursive depth first search step"""
 function dfs(state::DFSState, curr_tw::T) where T <: UInt16
     state.depth += 1
-    state.nodes_visited += 1
 
     # Recursive base case: an n-vertex graph can't have a treewidth 
     # larger than n-1.
@@ -124,7 +124,7 @@ function dfs(state::DFSState, curr_tw::T) where T <: UInt16
 
         # Compute the vertices that need to be iterated over
         # in the next branch and bound step using theorem 6.1
-        # in Gogate 2004.
+        # in Gogate 2004. TODO: theorem 6.1 not implemented
         N = state.N - state.depth
         verts = state.branches[state.depth]
         copy!(verts, vertices(state.graph))
@@ -158,35 +158,36 @@ function check_lower_bounds!(state::DFSState, curr_tw::UInt16)
         state.mmd_prune_at_depth[state.depth] += 1
         return false
     end
+    return true
 
-    # Below the pruning rule used by Yaun's tabel of lower bounds
-    # is used.
-    state_key = state.intermediate_graph_key
-    state_lb = get(state.lbs.tabel, state_key, nothing)
+    # # Below the pruning rule used by Yaun's tabel of lower bounds
+    # # is used.
+    # state_key = state.intermediate_graph_key
+    # state_lb = get(state.lbs.tabel, state_key, nothing)
 
-    if state_lb === nothing
-        lock(state.lbs.lock)
+    # if state_lb === nothing
+    #     lock(state.lbs.lock)
 
-        if !haskey(state.lbs.tabel, state_key)
-            state.lbs.tabel[state_key] = curr_tw
-        elseif state.lbs.tabel[state_key] > curr_tw
-            state.lbs.tabel[state_key] = curr_tw
-        end
+    #     if !haskey(state.lbs.tabel, state_key)
+    #         state.lbs.tabel[state_key] = curr_tw
+    #     elseif state.lbs.tabel[state_key] > curr_tw
+    #         state.lbs.tabel[state_key] = curr_tw
+    #     end
 
-        unlock(state.lbs.lock)
-        return true
+    #     unlock(state.lbs.lock)
+    #     return true
 
-    else
-        if state_lb > curr_tw
-            lock(state.lbs.lock)
-            state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
-            unlock(state.lbs.lock)
-            return true
-        else
-            state.lbs_prune_at_depth[state.depth] += 1
-            return false
-        end
-    end
+    # else
+    #     if state_lb > curr_tw
+    #         lock(state.lbs.lock)
+    #         state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
+    #         unlock(state.lbs.lock)
+    #         return true
+    #     else
+    #         state.lbs_prune_at_depth[state.depth] += 1
+    #         return false
+    #     end
+    # end
 end
 
 

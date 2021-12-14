@@ -1,7 +1,9 @@
+import DataStructures.PriorityQueue
+
 export min_fill, min_width
 export min_width_sampling
 export min_width_mt_sampling
-export mmd, mmd_plus, mmd_plus_correct
+export mmd, mmd_plus, mmd_plus_correct, mmd2, mmd3
 
 #=
 This file contains heuristic functions for computing upper and lower bounds
@@ -198,9 +200,18 @@ mmd(g::lg.SimpleGraph) = mmd(Graph(g))
 
 """Maximum Minimum Degree"""
 function mmd(g::Graph)
+    degree_map = similar(g.degree)
+    mmd(g, degree_map)
+end
+
+function mmd(g::Graph, degree_map::Vector{UInt16})
     N = g.num_vertices - 0x0001 # max degree possible. 
-    degree_map = copy(g.degree)
-    degree_map[@view g.vertices[g.num_vertices+1:end]] .= typemax(UInt16)
+    copy!(degree_map, g.degree)
+
+    for i = g.num_vertices+1:g.num_vertices
+        degree_map[g.vertices[i]] = typemax(UInt16)
+    end
+
     maxmin = 0x0000
     while maxmin < N
         dv, v = findmin(degree_map)
@@ -217,52 +228,64 @@ function mmd(g::Graph)
     maxmin
 end
 
-# """
-# Maximum Minimum Degree +
+function mmd2(g::Graph)
+    pq = PriorityQueue{UInt16, UInt16}(g.vertices .=> g.degree)
+    mmd2(g, pq)
+end
 
-# TODO: This implementation is incorrect.
-# problem with neighbours arrays after vertices merged.
-# """
-# function mmd_plus(G::SimpleGraph{Int})
-#     N = nv(G)
-#     degree_map = degree(G)
-#     maxmin = 0
-#     while maxmin < N
-#         dv, v = findmin(degree_map)
-#         maxmin = max(maxmin, dv)
+function mmd2(g::Graph, pq::PriorityQueue{UInt16, UInt16})
+    N = g.num_vertices - 0x0001 # max degree possible. 
 
-#         w = 0
-#         dw = N
-#         for wi in all_neighbors(G, v) # not correct after vertices 'merged'
-#             @inbounds if degree_map[wi] < dw
-#                 @inbounds dw = degree_map[wi]
-#                 w = wi
-#             end
-#         end
+    maxmin = 0x0000
+    while maxmin < N
+        @inbounds v_d = pq.xs[1]
+        maxmin = max(maxmin, v_d.second)
 
-#         if w != 0 # This check can be removed if we assume the grraph is connected.
-#             for u in all_neighbors(G, v)
-#                 if u in all_neighbors(G, w) 
-#                     @inbounds degree_map[u] -= 1
-#                 else
-#                     @inbounds degree_map[w] += 1
-#                 end
-#             end
-#         end
-#         degree_map[v] = typemax(Int)
+        pq[v_d.first] = typemax(UInt16)
+        for u in neighbours(g, v_d.first)
+            pq[u] -= 0x0001
+        end
 
-#         N -= 1
-#     end
+        N -= 0x0001
+    end
 
-#     maxmin
-# end
+    maxmin
+end
+
+# include("mmd_queue.jl")
+using .MMDQueues
+
+function mmd3(g::Graph)
+    pq = MMDQueue(g.vertices, g.degree)
+    mmd3(g, pq)
+end
+
+function mmd3(g::Graph, pq::MMDQueue)
+    N = g.num_vertices - 0x0001 # max degree possible. 
+
+    maxmin = 0x0000
+    i = 1
+    while maxmin < N
+        @inbounds v_d = pop!(pq)
+        maxmin = max(maxmin, v_d.second)
+
+        for u in neighbours(g, v_d.first)
+            decrement!(pq, u)
+        end
+
+        i += 1
+        N -= 0x0001
+    end
+
+    maxmin
+end
 
 # """
 # Maximum Minimum Degree plus
 
 # This implementation is correct but slow
 # """
-# function mmd_plus_correct(G::SimpleGraph{Int})
+# function mmd_plus(G::SimpleGraph{Int})
 #     H = deepcopy(G)
 #     maxmin = 0
 

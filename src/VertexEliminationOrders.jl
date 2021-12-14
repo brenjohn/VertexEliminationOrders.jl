@@ -6,6 +6,8 @@ using Random
 # @reexport using LightGraphs
 import LightGraphs as lg
 
+include("mmdqueues.jl")
+
 include("utils.jl")
 include("graph.jl")
 include("treewidth_heuristics.jl")
