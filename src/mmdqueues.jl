@@ -53,14 +53,13 @@ end
 
 function MMDQueue(vertices::Vector{UInt16}, degrees::Vector{UInt16})
     N = length(vertices)
-    I = sortperm(vertices; by=v -> degrees[v])
 
     queue = Array{Pair{UInt16, UInt16}, 1}(undef, N+1)
     keys = similar(vertices)
     bags = fill(UInt16(N+1), N)
 
     pq = MMDQueue(queue, keys, bags, 0x0001)
-    initialise_mmdqueue!(pq, I, vertices, degrees)
+    initialise_mmdqueue!(pq, vertices, degrees)
 
     pq
 end
@@ -72,20 +71,28 @@ in order of increasing degree.
 I is assumed to hold permutation of indices which puts
 the vertices into the correct order.
 """
-function initialise_mmdqueue!(pq::MMDQueue,
-                            I::AbstractArray, 
+function initialise_mmdqueue!(pq::MMDQueue, 
                             vertices::AbstractArray, 
                             degrees::Vector{UInt16})
     queue = pq.queue
     keys = pq.keys
     bags = pq.bags
+    N = UInt16(length(vertices))
 
+    # Initialise the queue.
+    for i = 0x0001:N
+        vi = vertices[i]
+        queue[i] = vi => degrees[vi]
+    end
+
+    # Sort the queue.
+    q = @view queue[0x0001:N]
+    sort!(q; alg=QuickSort, by=p -> p.second)
+
+    # Initialise keys and bag structure
     bag = 0x0000
-    for i = 0x0001:UInt16(length(vertices))
-        vi = I[i]
-        v = vertices[vi]
-        d = degrees[v]
-        queue[i] = Pair(v, d)
+    for i = 0x0001:N
+        (v, d) = queue[i]
         keys[v] = i
 
         if d >= bag

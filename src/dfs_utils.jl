@@ -42,7 +42,6 @@ mutable struct DFSState
     branches::Vector{Vector{UInt16}}   # A vector of vetrices to search for each node depth
 
     pq::MMDQueue                       #
-    I::Vector{UInt16}                  # 
 
     # Some varibales to record where pruning happends (for introspection)
     lbs_prune_at_depth::Vector{UInt64}
@@ -66,11 +65,10 @@ function DFSState(g::Graph, ub::UpperBound, lbs::LowerBounds, finish_time::Float
 
     branches = [Vector{UInt16}(undef, N-i) for i = 0:N-2]
 
-    pq = MMDQueue(g.vertices, g.degree) 
-    I = similar(g.degree)
+    pq = MMDQueue(g.vertices, g.degree)
 
     DFSState(g, N, falses(N),
-             initial_curr_order, ub, lbs, branches, pq, I,
+             initial_curr_order, ub, lbs, branches, pq,
              zeros(UInt64, N), zeros(UInt64, N), zeros(UInt64, N), 
              finish_time, false, 0.0, 0, 1, rng)
 end
@@ -78,7 +76,7 @@ end
 """Return a copy of the given DFSState."""
 function Base.copy(s::DFSState, seed::Int=42)
     DFSState(deepcopy(s.graph), s.N, copy(s.intermediate_graph_key),
-             copy(s.curr_order), s.ub, s.lbs, deepcopy(s.branches), deepcopy(s.pq), copy(s.I),
+             copy(s.curr_order), s.ub, s.lbs, deepcopy(s.branches), deepcopy(s.pq),
              zeros(UInt64, s.N), zeros(UInt64, s.N), zeros(UInt64, s.N),
              s.finish_time, false, 0.0, 0, s.depth, MersenneTwister(seed))
 end
@@ -207,10 +205,6 @@ function mmd(state::DFSState)
     g = state.graph
     verts = vertices(g)
 
-    I = @view state.I[1:g.num_vertices]
-    by(v) = g.degree[v]
-    sortperm!(I, verts; by=by, alg=QuickSort)
-
-    initialise_mmdqueue!(state.pq, I, verts, g.degree)
+    initialise_mmdqueue!(state.pq, verts, g.degree)
     mmd(state.graph, state.pq)
 end
