@@ -85,7 +85,7 @@ function initialise_mmdqueue!(pq::MMDQueue,
         queue[i] = vi => degrees[vi]
     end
 
-    # Sort the queue.
+    # Sort the queue (Use quicksort as it's non-allocating).
     q = @view queue[0x0001:N]
     sort!(q; alg=QuickSort, by=p -> p.second)
 

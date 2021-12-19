@@ -14,6 +14,15 @@ mutable struct UpperBound
     lock::SpinLock        # A lock to prevent multiple threads updating the tw at once.
 end
 
+"""Use a heuristic to get an initial upper bound on the treewidth."""
+function initialise_upper_bound(G::lg.AbstractGraph)
+    # initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
+    initial_ub_order, initial_ub_tw = collect(1:lg.nv(G)), 500
+    initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
+    println("The initial treewidth is ", initial_ub_tw)
+    initial_ub
+end
+
 """A struct to store best intermediate treewidths. (see FPBB Yaun 2011)"""
 struct LowerBounds
     tabel::Dict{BitVector, UInt16}
@@ -79,6 +88,18 @@ function Base.copy(s::DFSState, seed::Int=42)
              copy(s.curr_order), s.ub, s.lbs, deepcopy(s.branches), deepcopy(s.pq),
              zeros(UInt64, s.N), zeros(UInt64, s.N), zeros(UInt64, s.N),
              s.finish_time, false, 0.0, 0, s.depth, MersenneTwister(seed))
+end
+
+function initialise_dfsstates(G::lg.AbstractGraph, 
+                                ub::UpperBound, 
+                                finish_time::Float64, 
+                                seed::Integer, 
+                                n::Integer)
+    # Create a search state for each thread.
+    lbs = LowerBounds()
+    state = DFSState(Graph(G), ub, lbs, finish_time, seed)
+    # _, curr_tw = remove_simplicial_vertices!(state, 0)
+    [copy(state, seed + t) for t = 1:n], 0x0000
 end
 
 """Prints some info about the given DFSState."""

@@ -16,12 +16,6 @@ also used.
 Some methods were ommitted but will hopefully be added eventually.
 =#
 
-#=
-TODO: There seems to be a memory leak involving multiple threads and
-storing the tabel of lowerbounds (when one of them is removed the memory
-leak goes away). The leak results in the program OOM-ing when ran long enough.
-=#
-
 ###
 ### A branch and bound implementation
 ###
@@ -33,22 +27,15 @@ function branch_and_bound_dfs(G::lg.AbstractGraph, duration::Float64, seed::Int=
     start_time = time()
     finish_time = start_time + duration
     
-    # Use a heuristic to get an initial upper bound on the treewidth.
-    # initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
-    initial_ub_order, initial_ub_tw = collect(1:lg.nv(G)), 500
-    initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
+    initial_ub = initialise_upper_bound(G)
     heurisitc_finish_time = time()
-    println("The initial treewidth is ", initial_ub_tw)
 
     # Create a search state for each thread.
-    lbs = LowerBounds()
-    state = DFSState(Graph(G), initial_ub, lbs, finish_time, seed)
-    # _, curr_tw = remove_simplicial_vertices!(state, 0)
-    curr_tw = 0x0000
-    states = [copy(state, seed + t) for t = 1:nthreads()]
+    states, curr_tw = initialise_dfsstates(G, initial_ub, finish_time, seed, nthreads())
 
     # Randomly distribute the vertices of G amongst the threads.
-    verts = shuffle(states[1].rng, copy(state.graph.vertices))
+    state = states[1]
+    verts = shuffle(state.rng, copy(state.graph.vertices))
     verts = [UInt16[verts[i] for i = j:nthreads():state.graph.num_vertices] for j = 1:nthreads()]
 
     # Start each thread running a bb-dfs.
@@ -131,9 +118,8 @@ function dfs(state::DFSState, curr_tw::T) where T <: UInt16
 
         # Loop over all candidates for the next vertex in the current order.
         for i = 0x0001:N
-            v = verts[i]
             timed_out(state, N, i) && break
-
+            v = verts[i]
             bb(state, curr_tw, v)
         end
 
@@ -158,36 +144,35 @@ function check_lower_bounds!(state::DFSState, curr_tw::UInt16)
         state.mmd_prune_at_depth[state.depth] += 1
         return false
     end
-    return true
 
-    # # Below the pruning rule used by Yaun's tabel of lower bounds
-    # # is used.
-    # state_key = state.intermediate_graph_key
-    # state_lb = get(state.lbs.tabel, state_key, nothing)
+    # Below the pruning rule used by Yaun's tabel of lower bounds
+    # is used.
+    state_key = state.intermediate_graph_key
+    state_lb = get(state.lbs.tabel, state_key, nothing)
 
-    # if state_lb === nothing
-    #     lock(state.lbs.lock)
+    if state_lb === nothing
+        lock(state.lbs.lock)
 
-    #     if !haskey(state.lbs.tabel, state_key)
-    #         state.lbs.tabel[state_key] = curr_tw
-    #     elseif state.lbs.tabel[state_key] > curr_tw
-    #         state.lbs.tabel[state_key] = curr_tw
-    #     end
+        if !haskey(state.lbs.tabel, state_key)
+            state.lbs.tabel[state_key] = curr_tw
+        elseif state.lbs.tabel[state_key] > curr_tw
+            state.lbs.tabel[state_key] = curr_tw
+        end
 
-    #     unlock(state.lbs.lock)
-    #     return true
+        unlock(state.lbs.lock)
+        return true
 
-    # else
-    #     if state_lb > curr_tw
-    #         lock(state.lbs.lock)
-    #         state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
-    #         unlock(state.lbs.lock)
-    #         return true
-    #     else
-    #         state.lbs_prune_at_depth[state.depth] += 1
-    #         return false
-    #     end
-    # end
+    else
+        if state_lb > curr_tw
+            lock(state.lbs.lock)
+            state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
+            unlock(state.lbs.lock)
+            return true
+        else
+            state.lbs_prune_at_depth[state.depth] += 1
+            return false
+        end
+    end
 end
 
 
