@@ -70,7 +70,7 @@ function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
     if next_tw < state.ub.tw #&& check_lower_bounds!(state, curr_tw)
 
         # Eliminate the vertex from the current graph.
-        edges_added = eliminate!(state, v)
+        eliminate!(state, v)
         state.nodes_visited += 1
         
         if check_lower_bounds!(state, next_tw)
@@ -78,7 +78,7 @@ function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
         end
         
         # Restore the graph to its original state before returning.
-        restore_last_eliminated!(state, edges_added)
+        restore_last_eliminated!(state)
     else
         if curr_tw >= state.ub.tw
             state.ub_prune_at_depth[state.depth] += 1

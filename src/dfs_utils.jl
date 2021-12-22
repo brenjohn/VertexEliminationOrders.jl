@@ -209,9 +209,8 @@ end
 
 Restores a vertex 'v' which was eliminated to form the given 'state'.
 """
-function Graphs.restore_last_eliminated!(state::DFSState,
-                                   edges_to_remove::Vector{Tuple{UInt16, UInt16}})
-    restore_last_eliminated!(state.graph, edges_to_remove)
+function Graphs.restore_last_eliminated!(state::DFSState)
+    restore_last_eliminated!(state.graph)
     v = state.graph.vertices[state.graph.num_vertices]
     state.intermediate_graph_key[v] = false
     nothing

@@ -13,5 +13,5 @@ import VertexEliminationOrders as VEO
 end
 
 include("graph_tests.jl")
-include("heuristic_tests.jl")
+# include("heuristic_tests.jl")
 include("branch_and_bound_tests.jl")
