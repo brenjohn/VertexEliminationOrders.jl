@@ -23,11 +23,11 @@ Some methods were ommitted but will hopefully be added eventually.
 """
 branch_and_bound_dfs(G::AbstractGraph, duration::Float63, seed::Int=42)
 """
-function branch_and_bound_dfs(G::lg.AbstractGraph, duration::Float64, seed::Int=42)
+function branch_and_bound_dfs(G::lg.AbstractGraph, duration::Float64, seed::Integer=42)
     start_time = time()
     finish_time = start_time + duration
     
-    initial_ub = initialise_upper_bound(G)
+    initial_ub = initialise_upper_bound(G, seed)
     heurisitc_finish_time = time()
 
     # Create a search state for each thread.
@@ -133,34 +133,35 @@ end
 """Checks if pruning can be performed due to lower bounds"""
 function check_lower_bounds!(state::DFSState, curr_tw::UInt16)
     # Compute a lower bound on the remaining graph and prune if
-    # it is equal or larger than the current upper bound. 
-    if mmd(state) >= state.ub.tw
-        state.mmd_prune_at_depth[state.depth] += 1
-        return false
+    # it is equal or larger than the current upper bound.
+    if state.lb_ub >= state.ub.tw
+        state.lb_ub = mmd(state)
+        if state.lb_ub >= state.ub.tw
+            state.mmd_prune_at_depth[state.depth] += 1
+            return false
+        end
     end
 
     # Below the pruning rule used by Yaun's tabel of lower bounds
     # is used.
     state_key = state.intermediate_graph_key
-    state_lb = get(state.lbs.tabel, state_key, nothing)
+    tabel = state.lbs.tabel
+    slock = state.lbs.lock
+    state_lb = get(tabel, state_key, nothing)
 
     if state_lb === nothing
-        lock(state.lbs.lock)
-
-        if !haskey(state.lbs.tabel, state_key)
-            state.lbs.tabel[state_key] = curr_tw
-        elseif state.lbs.tabel[state_key] > curr_tw
-            state.lbs.tabel[state_key] = curr_tw
+        lock(slock)
+        if !haskey(tabel, state_key) || tabel[state_key] > curr_tw
+            tabel[state_key] = curr_tw
         end
-
-        unlock(state.lbs.lock)
+        unlock(slock)
         return true
 
     else
-        if state_lb > curr_tw
-            lock(state.lbs.lock)
-            state_lb > curr_tw && (state.lbs.tabel[state_key] = curr_tw)
-            unlock(state.lbs.lock)
+        if curr_tw < state_lb
+            lock(slock)
+            tabel[state_key] = curr_tw
+            unlock(slock)
             return true
         else
             state.lbs_prune_at_depth[state.depth] += 1
@@ -174,7 +175,7 @@ function timed_out(state::DFSState, N::UInt16, i::Integer)
     if time() >= state.finish_time
         if state.timed_out
             state.space_covered *= 1/N
-            state.space_covered += (i-2)/N # -2 instead of -1 since i is incremented before check
+            state.space_covered += (i-1)/N
         else
             state.timed_out = true
         end

@@ -15,9 +15,8 @@ mutable struct UpperBound
 end
 
 """Use a heuristic to get an initial upper bound on the treewidth."""
-function initialise_upper_bound(G::lg.AbstractGraph)
-    # initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
-    initial_ub_order, initial_ub_tw = collect(1:lg.nv(G)), 100
+function initialise_upper_bound(G::lg.AbstractGraph, seed::Integer)
+    initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
     initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
     println("The initial treewidth is ", initial_ub_tw)
     initial_ub
@@ -30,6 +29,16 @@ struct LowerBounds
 
     LowerBounds() = new(Dict{BitVector, UInt16}(), SpinLock())
 end
+# struct LowerBounds
+#     tabels::Vector{Dict{BitVector, UInt16}}
+#     locks::Vector{SpinLock}
+# end
+
+# function LowerBounds(N::Integer)
+#     tabels = [Dict{BitVector, UInt16}() for i = 1:N]
+#     locks = [SpinLock() for i = 1:N]
+#     LowerBounds(tabels, locks)
+# end
 
 
 ###
@@ -47,6 +56,7 @@ mutable struct DFSState
     curr_order::Vector{UInt16}         # The current elimination order being constructed.
     ub::UpperBound                     # A struct holding the best elimination order found so far.
     lbs::LowerBounds                   # A struct holding the lower bounds found so far (See Yaun 2011)
+    lb_ub::UInt16
 
     branches::Vector{Vector{UInt16}}   # A vector of vetrices to search for each node depth
 
@@ -77,7 +87,7 @@ function DFSState(g::Graph, ub::UpperBound, lbs::LowerBounds, finish_time::Float
     pq = MMDQueue(g.vertices, g.degree)
 
     DFSState(g, N, falses(N),
-             initial_curr_order, ub, lbs, branches, pq,
+             initial_curr_order, ub, lbs, 0x0000, branches, pq,
              zeros(UInt64, N), zeros(UInt64, N), zeros(UInt64, N), 
              finish_time, false, 0.0, 0, 1, rng)
 end
@@ -85,7 +95,7 @@ end
 """Return a copy of the given DFSState."""
 function Base.copy(s::DFSState, seed::Int=42)
     DFSState(deepcopy(s.graph), s.N, copy(s.intermediate_graph_key),
-             copy(s.curr_order), s.ub, s.lbs, deepcopy(s.branches), deepcopy(s.pq),
+             copy(s.curr_order), s.ub, s.lbs, 0x0000, deepcopy(s.branches), deepcopy(s.pq),
              zeros(UInt64, s.N), zeros(UInt64, s.N), zeros(UInt64, s.N),
              s.finish_time, false, 0.0, 0, s.depth, MersenneTwister(seed))
 end
@@ -98,7 +108,6 @@ function initialise_dfsstates(G::lg.AbstractGraph,
     # Create a search state for each thread.
     lbs = LowerBounds()
     state = DFSState(Graph(G), ub, lbs, finish_time, seed)
-    # _, curr_tw = remove_simplicial_vertices!(state, 0)
     [copy(state, seed + t) for t = 1:n], 0x0000
 end
 
@@ -122,8 +131,8 @@ end
 """Holds the results of a depth first search"""
 struct DFSReport
     states::Vector{DFSState}    # A vector containing the states returned from each thread used.
-    best_tw::Int                # The best treewidth found
-    best_order::Vector{Int}     # The best elimination order found
+    tw::Int                     # The best treewidth found
+    order::Vector{Int}          # The best elimination order found
 
     # Variables to indicate how much of the 
     # search space was covered.
@@ -144,8 +153,8 @@ end
 
 """Constructor for a DFSReport"""
 function DFSReport(states::Vector{DFSState}, allocated_time, total_time, ub_time, dfs_time)
-    best_tw = states[1].ub.tw
-    best_order = copy(states[1].ub.order)
+    tw = states[1].ub.tw
+    order = copy(states[1].ub.order)
 
     total_nodes_visited = sum([state.nodes_visited for state in states])
     total_space_covered = sum([s.timed_out ? s.space_covered : 1/length(states) for s in states])
@@ -155,8 +164,8 @@ function DFSReport(states::Vector{DFSState}, allocated_time, total_time, ub_time
     mmd_pruned = sum([state.mmd_prune_at_depth for state in states])
 
     DFSReport(states, 
-              best_tw, 
-              best_order, 
+              tw, 
+              order, 
               total_nodes_visited, 
               total_space_covered,
               allocated_time,
@@ -173,8 +182,8 @@ function Base.show(io::IO, r::DFSReport)
     compact = get(io, :compact, false)
     if !compact
         println(io, "")
-        println(io, "The graph size was {nodes, edges} = ", r.states[1].graph)
-        println(io, "The best treewidth found was ", r.best_tw)
+        println(io, r.states[1].graph)
+        println(io, "The best treewidth found was ", r.tw)
         println(io, "The number of nodes visted was ", r.nodes_visited)
         println(io, "The fraction of the search space covered was (to machine precision) ", r.space_covered)
         println(io, "Time:")
@@ -200,7 +209,8 @@ be used to restore the eliminated vertex.
 """
 function Graphs.eliminate!(state::DFSState, v::UInt16)
     state.intermediate_graph_key[v] = true
-    eliminate!(state.graph, v)
+    state.lb_ub += eliminate!(state.graph, v)
+    nothing
 end
 
 """

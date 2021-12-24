@@ -211,25 +211,27 @@ function simplexity(nbhd::SubArray)::Int64
 end
 
 """Turn the neighbourhood of v into a simplex."""
-function make_simplicial!(g::Graph, v::UInt16)::Nothing
+function make_simplicial!(g::Graph, v::UInt16)::UInt16
     Nbhd = neighbourhood(g, v)
     N = neighbours(g, v)
 
     d = g.degree[v]
+    e = 0
     for i = 1:d-1
         for j = i+1:d
             if Nbhd[i, j] == 0x0000
                 @inbounds ui = N[i]; uj = N[j]
                 add_edge!(g, ui, uj)
+                e += 0x0001
             end
         end
     end
 
-    nothing
+    e
 end
 
 """Remove the vertex v from the graph g and make it simplicial."""
-function eliminate!(g::Graph, v::UInt16)::Nothing
+function eliminate!(g::Graph, v::UInt16)::UInt16
     g.num_updates += 0x0001
     remove_vertex!(g, v)
     make_simplicial!(g, v)

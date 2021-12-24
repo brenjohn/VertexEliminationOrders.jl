@@ -42,7 +42,7 @@ function min_fill(rng::AbstractRNG,
         v = rand(rng, candidates)
         tw = max(tw, lg.degree(g, v))
         order[i] = labels[v]
-        eliminate!(g, labels, cliqueness_map, v)
+        lg_eliminate!(g, labels, cliqueness_map, v)
         n -= 1
         i += 1
     end

@@ -4,9 +4,9 @@
 
     # Test the main branch and bound algorithm.
     dfs_report = branch_and_bound_dfs(g, 2.0)
-    order = dfs_report.best_order
+    order = dfs_report.order
     @test length(order) == VertexEliminationOrders.lg.nv(g)
-    @test dfs_report.best_tw == find_treewidth_from_order(g, order)
+    @test dfs_report.tw == find_treewidth_from_order(g, order)
 
 
     
