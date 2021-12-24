@@ -17,7 +17,7 @@ end
 """Use a heuristic to get an initial upper bound on the treewidth."""
 function initialise_upper_bound(G::lg.AbstractGraph)
     # initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
-    initial_ub_order, initial_ub_tw = collect(1:lg.nv(G)), 500
+    initial_ub_order, initial_ub_tw = collect(1:lg.nv(G)), 100
     initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
     println("The initial treewidth is ", initial_ub_tw)
     initial_ub

@@ -67,7 +67,7 @@ function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
     next_tw = max(curr_tw, degree(state.graph, v))
 
     # Prune unless the current treewidth is less than the current upper bound.
-    if next_tw < state.ub.tw #&& check_lower_bounds!(state, curr_tw)
+    if next_tw < state.ub.tw
 
         # Eliminate the vertex from the current graph.
         eliminate!(state, v)
@@ -106,25 +106,19 @@ function dfs(state::DFSState, curr_tw::T) where T <: UInt16
         end
 
     else
-        # Reduce the graph if possible before moving to the next branch and bound step.
-        # removed_vertices, curr_tw = remove_simplicial_vertices!(state, curr_tw)
-
-        # Compute the vertices that need to be iterated over
-        # in the next branch and bound step using theorem 6.1
-        # in Gogate 2004. TODO: theorem 6.1 not implemented
-        N = state.N - state.depth
+        # Copy the vertices which may be eliminated next.
+        # (This is needed as vertices(graph) may mutate after
+        # subsequent eliminations.)
+        N = num_vertices(state.graph)
         verts = state.branches[state.depth]
         copy!(verts, vertices(state.graph))
 
-        # Loop over all candidates for the next vertex in the current order.
+        # Explore eliminating each of the next candidates.
         for i = 0x0001:N
             timed_out(state, N, i) && break
             v = verts[i]
             bb(state, curr_tw, v)
         end
-
-        # Restore the graph to its original state before returning.
-        # restore_simplicial_vertices!(state, removed_vertices)
     end
 
     state.depth -= 1
@@ -173,40 +167,6 @@ function check_lower_bounds!(state::DFSState, curr_tw::UInt16)
             return false
         end
     end
-end
-
-
-"""Implements the simplicial vertex rule for graph reduction (see Gogate 2004)"""
-function remove_simplicial_vertices!(state::DFSState, curr_tw::Int)
-    removed_vertices = Tuple{Int, Vector{Int}, Vector{Tuple{Int, Int}}}[]
-
-    v = next_simplicial_vertex(state)
-    while v !== nothing && nv(state.graph) - 1 > curr_tw
-        curr_tw = max(curr_tw, degree(state.graph, v))
-        state.curr_order[state.depth] = state.labels[v]
-        state.depth += 1
-
-        Nv, edges_added = eliminate!(state, v)
-        push!(removed_vertices, (v::Int, Nv, edges_added))
-
-        v = next_simplicial_vertex(state)
-    end
-
-    removed_vertices, curr_tw
-end
-
-"""Restores the given simplicial vertices that were removed from the graph."""
-function restore_simplicial_vertices!(state::DFSState, 
-                                      removed_vertices::Vector{Tuple{Int, Vector{Int}, Vector{Tuple{Int, Int}}}})
-    state.depth -= length(removed_vertices)
-    for (v, Nv, edges_added) in Iterators.reverse(removed_vertices)
-        un_eliminate!(state, v, Nv, edges_added)
-    end
-end
-
-"""Returns the index of a simplicial vertex which can be removed."""
-function next_simplicial_vertex(state::DFSState)
-    findfirst(c_v -> c_v == 0, state.c_map[1:nv(state.graph)])
 end
 
 """Check if the algorithm has ran out of time"""

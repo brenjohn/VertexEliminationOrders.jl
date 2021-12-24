@@ -69,7 +69,7 @@ assumed to be guaranteed by the depth first search implementation.
 
 import LightGraphs as lg
 
-export Graph, vertices, neighbours, degree, lg
+export Graph, num_vertices, vertices, neighbours, degree, lg
 export eliminate!, restore_last_eliminated!
 
 ###
@@ -126,6 +126,7 @@ end
 ###
 
 degree(g::Graph, v::Integer) = g.degree[v]
+num_vertices(g::Graph) = g.num_vertices
 vertices(g::Graph) = @view g.vertices[1:g.num_vertices]
 neighbours(g::Graph, v::Integer) = @view g.adj_list[v][1:g.degree[v]]
 

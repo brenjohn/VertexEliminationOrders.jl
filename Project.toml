@@ -1,13 +1,11 @@
 name = "VertexEliminationOrders"
 uuid = "8b81cbe5-9619-4878-8f6a-289d09070662"
 authors = ["John Brennan <john.brennan@ichec.ie> and contributors"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 LightGraphs = "093fc24a-ae57-5d10-9952-331d41423f4d"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
 julia = "1"
