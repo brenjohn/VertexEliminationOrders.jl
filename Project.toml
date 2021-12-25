@@ -1,7 +1,7 @@
 name = "VertexEliminationOrders"
 uuid = "8b81cbe5-9619-4878-8f6a-289d09070662"
 authors = ["John Brennan <johnmarkbrennan@gmail.com> and contributors"]
-version = "0.2.0"
+version = "1.0.0"
 
 [deps]
 LightGraphs = "093fc24a-ae57-5d10-9952-331d41423f4d"

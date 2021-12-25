@@ -1,4 +1,4 @@
-export branch_and_bound_dfs
+export estimate_treewidth
 
 #=
 This file contains an implementation of an anytime, branch and bound, depth first
@@ -6,32 +6,55 @@ search for computing the treewidth of a graph. If the search doesn't complete wi
 the allocated time, an upper bound is resturned representing the best solution the 
 algorithm was able to find.
 
-The algorithm is outlined by Gogate in the 2004 paper "A complete anytime algorithm
-for treewidth".
+The basic algorithm is outlined by Gogate in the 2004 paper "A complete anytime 
+algorithm for treewidth".
 
-Some of the methods mentioned in Yaun's 2011 paper "A Fast Parallel Branch and Bound 
-Algorithm for Treewidth" and Bodlaender's "Treewidth Computations 1 & 2" papers are 
-also used.
-
-Some methods were ommitted but will hopefully be added eventually.
+One of the methods mentioned in Yaun's 2011 paper "A Fast Parallel Branch and Bound 
+Algorithm for Treewidth".
+    
+A discussion of relevant heuristics can be found in Bodlaender's "Treewidth 
+Computations 1 & 2" papers but not yet used.
 =#
 
 ###
-### A branch and bound implementation
+### Interface for the branch-and-bound depth-first search.
 ###
 
 """
-branch_and_bound_dfs(G::AbstractGraph, duration::Float63, seed::Int=42)
+    estimate_treewidth(G::AbstractGraph, duration::Float63; seed::Int=42)
+
+Uses a branch-and-bound depth-first-search to compute a vertex elimination order
+for the graph `g` with minimal treewidth. If the search does not complete within
+the allocated time, the best trewidth and elimination order is returned.
 """
-function branch_and_bound_dfs(G::lg.AbstractGraph, duration::Float64, seed::Integer=42)
+function estimate_treewidth(
+    G::lg.AbstractGraph, 
+    run_time::AbstractFloat;
+    seed::Integer=42
+    )
+
     start_time = time()
-    finish_time = start_time + duration
+    finish_time = start_time + run_time
     
     initial_ub = initialise_upper_bound(G, seed)
     heurisitc_finish_time = time()
 
     # Create a search state for each thread.
-    states, curr_tw = initialise_dfsstates(G, initial_ub, finish_time, seed, nthreads())
+    states, initial_tw = initialise_dfsstates(G, initial_ub, finish_time, seed, nthreads())
+    _estimate_treewidth!(states, finish_time - heurisitc_finish_time)
+    actual_finish_time = time()
+
+    # Collect the results into a report.
+    report = DFSReport(states, run_time, start_time, heurisitc_finish_time, actual_finish_time)
+
+    report.tw, report.order, report
+end
+
+
+function _estimate_treewidth!(states, run_time)
+    for state in states 
+        prep_state!(state, run_time) 
+    end
 
     # Randomly distribute the vertices of G amongst the threads.
     state = states[1]
@@ -40,28 +63,25 @@ function branch_and_bound_dfs(G::lg.AbstractGraph, duration::Float64, seed::Inte
 
     # Start each thread running a bb-dfs.
     @threads for t = 1:nthreads()
-        _bb(states[t], curr_tw, verts[t])
-    end
-    actual_finish_time = time()
-
-    # Collect the results into a report.
-    heuristic_time = heurisitc_finish_time - start_time
-    actual_time = actual_finish_time - start_time
-    dfs_time = actual_finish_time - heurisitc_finish_time
-    DFSReport(states, duration, actual_time, heuristic_time, dfs_time)
-end
-
-
-function _bb(state::DFSState, curr_tw::UInt16, verts::Vector{UInt16})
-    for v in verts
-        bb(state, curr_tw, v)
+        _bb!(states[t], 0x0000, verts[t])
     end
     nothing
 end
 
 
-"""Performs the branch and bound step"""
-function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
+function _bb!(state::DFSState, curr_tw::UInt16, verts::Vector{UInt16})
+    for v in verts
+        bb!(state, curr_tw, v)
+    end
+    nothing
+end
+
+###
+### Implementation of a branch-and-bound depth-first search of elimination orders.
+###
+
+"""Performs the branch and bound step."""
+function bb!(state::DFSState, curr_tw::UInt16, v::UInt16)
     # Add the next vertex to the current order and update the treewidth.
     state.curr_order[state.depth] = v
     next_tw = max(curr_tw, degree(state.graph, v))
@@ -74,7 +94,7 @@ function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
         state.nodes_visited += 1
         
         if check_lower_bounds!(state, next_tw)
-            dfs(state, next_tw)
+            dfs!(state, next_tw)
         end
         
         # Restore the graph to its original state before returning.
@@ -87,8 +107,8 @@ function bb(state::DFSState, curr_tw::UInt16, v::UInt16)
 end
 
 
-"""Performs the recursive depth first search step"""
-function dfs(state::DFSState, curr_tw::T) where T <: UInt16
+"""Performs the recursive depth first search step."""
+function dfs!(state::DFSState, curr_tw::T) where T <: UInt16
     state.depth += 1
 
     # Recursive base case: an n-vertex graph can't have a treewidth 
@@ -117,7 +137,7 @@ function dfs(state::DFSState, curr_tw::T) where T <: UInt16
         for i = 0x0001:N
             timed_out(state, N, i) && break
             v = verts[i]
-            bb(state, curr_tw, v)
+            bb!(state, curr_tw, v)
         end
     end
 

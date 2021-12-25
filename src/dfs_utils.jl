@@ -29,16 +29,6 @@ struct LowerBounds
 
     LowerBounds() = new(Dict{BitVector, UInt16}(), SpinLock())
 end
-# struct LowerBounds
-#     tabels::Vector{Dict{BitVector, UInt16}}
-#     locks::Vector{SpinLock}
-# end
-
-# function LowerBounds(N::Integer)
-#     tabels = [Dict{BitVector, UInt16}() for i = 1:N]
-#     locks = [SpinLock() for i = 1:N]
-#     LowerBounds(tabels, locks)
-# end
 
 
 ###
@@ -59,8 +49,7 @@ mutable struct DFSState
     lb_ub::UInt16
 
     branches::Vector{Vector{UInt16}}   # A vector of vetrices to search for each node depth
-
-    pq::MMDQueue                       #
+    pq::MMDQueue                       # A pre-allocated priority queue to be used for mmd calls.
 
     # Some varibales to record where pruning happends (for introspection)
     lbs_prune_at_depth::Vector{UInt64}
@@ -70,7 +59,7 @@ mutable struct DFSState
     # Variables to store various quantities related to the search.
     finish_time::Float64
     timed_out::Bool
-    space_covered::Float64 # TODO: Try this as a BigFloat
+    space_covered::Float64
     nodes_visited::UInt64
     depth::UInt16
     rng::MersenneTwister
@@ -92,14 +81,6 @@ function DFSState(g::Graph, ub::UpperBound, lbs::LowerBounds, finish_time::Float
              finish_time, false, 0.0, 0, 1, rng)
 end
 
-"""Return a copy of the given DFSState."""
-function Base.copy(s::DFSState, seed::Int=42)
-    DFSState(deepcopy(s.graph), s.N, copy(s.intermediate_graph_key),
-             copy(s.curr_order), s.ub, s.lbs, 0x0000, deepcopy(s.branches), deepcopy(s.pq),
-             zeros(UInt64, s.N), zeros(UInt64, s.N), zeros(UInt64, s.N),
-             s.finish_time, false, 0.0, 0, s.depth, MersenneTwister(seed))
-end
-
 function initialise_dfsstates(G::lg.AbstractGraph, 
                                 ub::UpperBound, 
                                 finish_time::Float64, 
@@ -109,6 +90,21 @@ function initialise_dfsstates(G::lg.AbstractGraph,
     lbs = LowerBounds()
     state = DFSState(Graph(G), ub, lbs, finish_time, seed)
     [copy(state, seed + t) for t = 1:n], 0x0000
+end
+
+function prep_state!(state::DFSState, run_time)
+    state.finish_time = time() + run_time
+    state.space_covered = 0.0
+    state.timed_out = false
+    nothing
+end
+
+"""Return a copy of the given DFSState."""
+function Base.copy(s::DFSState, seed::Int=42)
+    DFSState(deepcopy(s.graph), s.N, copy(s.intermediate_graph_key),
+             copy(s.curr_order), s.ub, s.lbs, 0x0000, deepcopy(s.branches), deepcopy(s.pq),
+             zeros(UInt64, s.N), zeros(UInt64, s.N), zeros(UInt64, s.N),
+             s.finish_time, false, 0.0, 0, s.depth, MersenneTwister(seed))
 end
 
 """Prints some info about the given DFSState."""
@@ -131,19 +127,19 @@ end
 """Holds the results of a depth first search"""
 struct DFSReport
     states::Vector{DFSState}    # A vector containing the states returned from each thread used.
-    tw::Int                     # The best treewidth found
-    order::Vector{Int}          # The best elimination order found
+    tw::UInt16                  # The best treewidth found
+    order::Vector{UInt16}       # The best elimination order found
 
     # Variables to indicate how much of the 
     # search space was covered.
     nodes_visited::UInt64
-    space_covered::Float64
+    space_covered::AbstractFloat
 
     # Time measurements.
-    duration::Float64
-    actual_time::Float64
-    heuristic_time::Float64
-    dfs_time::Float64
+    duration::AbstractFloat
+    actual_time::AbstractFloat
+    heuristic_time::AbstractFloat
+    dfs_time::AbstractFloat
 
     # Vectors indicating where pruning happened.
     ub_pruned::Vector{UInt64}
@@ -152,7 +148,17 @@ struct DFSReport
 end
 
 """Constructor for a DFSReport"""
-function DFSReport(states::Vector{DFSState}, allocated_time, total_time, ub_time, dfs_time)
+function DFSReport(
+                states::Vector{DFSState}, 
+                allocated_time, 
+                start_time, 
+                heurisitc_finish_time, 
+                actual_finish_time
+                )
+    actual_time = actual_finish_time - start_time
+    heuristic_time = heurisitc_finish_time - start_time
+    dfs_time = actual_finish_time - heurisitc_finish_time
+
     tw = states[1].ub.tw
     order = copy(states[1].ub.order)
 
@@ -163,18 +169,20 @@ function DFSReport(states::Vector{DFSState}, allocated_time, total_time, ub_time
     lbs_pruned = sum([state.lbs_prune_at_depth for state in states])
     mmd_pruned = sum([state.mmd_prune_at_depth for state in states])
 
-    DFSReport(states, 
-              tw, 
-              order, 
-              total_nodes_visited, 
-              total_space_covered,
-              allocated_time,
-              total_time,
-              ub_time,
-              dfs_time,
-              ub_pruned,
-              lbs_pruned,
-              mmd_pruned)
+    DFSReport(
+            states, 
+            tw, 
+            order, 
+            total_nodes_visited, 
+            total_space_covered,
+            allocated_time,
+            actual_time,
+            heuristic_time,
+            dfs_time,
+            ub_pruned,
+            lbs_pruned,
+            mmd_pruned
+            )
 end
 
 """Prints the results of a branch-and-bound depth first search."""
@@ -186,9 +194,11 @@ function Base.show(io::IO, r::DFSReport)
         println(io, "The best treewidth found was ", r.tw)
         println(io, "The number of nodes visted was ", r.nodes_visited)
         println(io, "The fraction of the search space covered was (to machine precision) ", r.space_covered)
-        println(io, "Time:")
-        println(io, " allocated = ", r.duration, " actual = ", r.actual_time)
-        println(io, " heuristic = ", r.heuristic_time, " dfs = ", r.dfs_time)
+        println(io, "Time (seconds):")
+        println(io, " allocated   = ", r.duration)
+        println(io, " actual      = ", r.actual_time)
+        println(io, " heuristic   = ", r.heuristic_time)
+        println(io, " main run    = ", r.dfs_time)
     else
         show(io, (r.best_tw, r.best_order))
     end
@@ -200,7 +210,7 @@ end
 ###
 
 """
-eliminate!(state::DFSState, v::Int)
+    eliminate!(state::DFSState, v::Int)
 
 Eliminates vertex 'v' from the given state and update all its relevant variables.
 
@@ -227,7 +237,7 @@ function Graphs.restore_last_eliminated!(state::DFSState)
 end
 
 ###
-### 
+### Forwarding heuristic functions to a state's graph.
 ###
 
 """Use the mmd heuristic on the given state graph"""

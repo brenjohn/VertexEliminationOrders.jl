@@ -52,7 +52,7 @@ end
 
 Return the treewidth of `G` with respect to the elimination order in `order`.
 """
-function find_treewidth_from_order(G::lg.AbstractGraph, order::Array{Int, 1})
+function find_treewidth_from_order(G::lg.AbstractGraph, order::Array{<:Integer, 1})
     G = deepcopy(G)
     labels = collect(1:lg.nv(G))
     τ = 0

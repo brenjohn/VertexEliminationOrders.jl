@@ -3,8 +3,8 @@ module Graphs
 #=
 This module defines a custom graph struct, tailored for a depth first 
 search through the set of all vertex elimination orders of a graph.
-It aims to provide graph operations which are central to such a search
-algorithm and which are non-allocating.
+It aims to provide graph operations which are both central to such a 
+search algorithm and are non-allocating.
 
 The implemented interface allows one to view the current vertices of a 
 graph, the neighbours of a vertex and and its degree. It also enables 
@@ -210,7 +210,10 @@ function simplexity(nbhd::SubArray)::Int64
     count
 end
 
-"""Turn the neighbourhood of v into a simplex."""
+"""
+Turn the neighbourhood of v into a simplex.
+The number of edges added to do so is also returned.
+"""
 function make_simplicial!(g::Graph, v::UInt16)::UInt16
     Nbhd = neighbourhood(g, v)
     N = neighbours(g, v)
