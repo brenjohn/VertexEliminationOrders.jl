@@ -144,12 +144,12 @@ function remove_vertex!(g::Graph, v::UInt16)::Nothing
     i = find_index(g.vertices, v)
 
     # Swap v with the n-th vertex and decrease n by 1.
-    g.vertices[i] = g.vertices[g.num_vertices]
-    g.vertices[g.num_vertices] = v
+    @inbounds g.vertices[i] = g.vertices[g.num_vertices]
+    @inbounds g.vertices[g.num_vertices] = v
     g.num_vertices -= 0x0001
 
     # Remove v from the neighbourhood of its neighbours.
-    for n in neighbours(g, v)
+    @inbounds for n in neighbours(g, v)
         N = neighbours(g, n)
         i = find_index(N, v)
 
@@ -163,16 +163,16 @@ end
 """Add an edge to the grapg G connecting u and v."""
 function add_edge!(g::Graph, u::UInt16, v::UInt16)::Nothing
     # Increment the degrees of u and v.
-    g.degree[u] += 0x0001
-    g.degree[v] += 0x0001
+    @inbounds g.degree[u] += 0x0001
+    @inbounds g.degree[v] += 0x0001
 
     # Add v as a neighbour of u and vice versa.
-    g.adj_list[u][g.degree[u]] = v
-    g.adj_list[v][g.degree[v]] = u
+    @inbounds g.adj_list[u][g.degree[u]] = v
+    @inbounds g.adj_list[v][g.degree[v]] = u
 
     # Update adjacency matrix.
-    g.adj_memory[u, v] = g.num_updates
-    g.adj_memory[v, u] = g.num_updates
+    @inbounds g.adj_memory[u, v] = g.num_updates
+    @inbounds g.adj_memory[v, u] = g.num_updates
 
     nothing
 end
@@ -181,17 +181,17 @@ end
 function remove_edge!(g::Graph, u::UInt16, v::UInt16)::Nothing
     # Update adjacency list for u.
     i = find_index(g.adj_list[u], v)
-    g.adj_list[u][i] = g.adj_list[u][g.degree[u]]
-    g.degree[u] -= 0x0001
+    @inbounds g.adj_list[u][i] = g.adj_list[u][g.degree[u]]
+    @inbounds g.degree[u] -= 0x0001
 
     # Update adjacency list for v.
-    i = find_index(g.adj_list[v], u)
-    g.adj_list[v][i] = g.adj_list[v][g.degree[v]]
-    g.degree[v] -= 0x0001
+    @inbounds i = find_index(g.adj_list[v], u)
+    @inbounds g.adj_list[v][i] = g.adj_list[v][g.degree[v]]
+    @inbounds g.degree[v] -= 0x0001
 
     # Update adjacency matrix.
-    g.adj_memory[u, v] = 0x0000
-    g.adj_memory[v, u] = 0x0000
+    @inbounds g.adj_memory[u, v] = 0x0000
+    @inbounds g.adj_memory[v, u] = 0x0000
 
     nothing
 end
@@ -251,7 +251,7 @@ function restore_last_eliminated!(g::Graph)::Nothing
     v = g.vertices[g.num_vertices]
     N = neighbours(g, v)
 
-    for n in N
+    @inbounds for n in N
         g.degree[n] += 0x0001
         g.adj_list[n][g.degree[n]] = v
     end

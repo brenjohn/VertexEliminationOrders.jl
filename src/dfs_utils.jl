@@ -18,7 +18,7 @@ end
 function initialise_upper_bound(G::lg.AbstractGraph, seed::Integer)
     initial_ub_order, initial_ub_tw = min_fill(G; seed=seed)
     initial_ub = UpperBound(initial_ub_tw, initial_ub_order, SpinLock())
-    println("The initial treewidth is ", initial_ub_tw)
+    @info "The initial treewidth is $initial_ub_tw"
     initial_ub
 end
 
@@ -89,10 +89,10 @@ function initialise_dfsstates(G::lg.AbstractGraph,
     # Create a search state for each thread.
     lbs = LowerBounds()
     state = DFSState(Graph(G), ub, lbs, finish_time, seed)
-    [copy(state, seed + t) for t = 1:n], 0x0000
+    [copy(state, seed + t) for t = 1:n]
 end
 
-function prep_state!(state::DFSState, run_time)
+function prep_state!(state::DFSState, run_time::AbstractFloat)::Nothing
     state.finish_time = time() + run_time
     state.space_covered = 0.0
     state.timed_out = false
@@ -198,7 +198,7 @@ function Base.show(io::IO, r::DFSReport)
         println(io, " allocated   = ", r.duration)
         println(io, " actual      = ", r.actual_time)
         println(io, " heuristic   = ", r.heuristic_time)
-        println(io, " main run    = ", r.dfs_time)
+        println(io, " b&b dfs     = ", r.dfs_time)
     else
         show(io, (r.best_tw, r.best_order))
     end

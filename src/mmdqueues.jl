@@ -81,8 +81,8 @@ function initialise_mmdqueue!(pq::MMDQueue,
 
     # Initialise the queue.
     for i = 0x0001:N
-        vi = vertices[i]
-        queue[i] = vi => degrees[vi]
+        @inbounds vi = vertices[i]
+        @inbounds queue[i] = vi => degrees[vi]
     end
 
     # Sort the queue (Use quicksort as it's non-allocating).
@@ -91,7 +91,7 @@ function initialise_mmdqueue!(pq::MMDQueue,
 
     # Initialise keys and bag structure
     bag = 0x0000
-    for i = 0x0001:N
+    @inbounds for i = 0x0001:N
         (v, d) = queue[i]
         keys[v] = i
 
@@ -112,9 +112,9 @@ Return the element with highest priority and increment all
 bag boundaries to point to the next highest priority element.
 """
 function pull!(q::MMDQueue)
-    p = q.queue[q.min]
+    @inbounds p = q.queue[q.min]
     q.min += 0x0001
-    q.bags[0x0001:p.second+0x0001] .= q.min
+    @inbounds q.bags[0x0001:p.second+0x0001] .= q.min
     p
 end
 
@@ -158,8 +158,8 @@ the correct priority for vertices and bag structure.
 See comments above docstring for implementation details.
 """
 function decrement!(q::MMDQueue, v::UInt16)
-    i = q.keys[v]           # index of v.
-    if i >= q.min
+    @inbounds i = q.keys[v]           # index of v.
+    @inbounds if i >= q.min
         d = q.queue[i].second   # the degree of v.
         b = q.bags[d + 0x0001]  # index of bag d boundary.
 
