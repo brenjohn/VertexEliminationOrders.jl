@@ -1,6 +1,6 @@
 export find_treewidth_from_order
 export find_similar_groups
-export graph_from_gr, graph_to_gr
+export graph_from_gr, graph_to_gr, load_example_graph
 
 
 ###
@@ -40,6 +40,24 @@ function graph_to_gr(G::lg.AbstractGraph, filename::String)
             write(io, "$(e.src) $(e.dst)\n")
         end
     end
+end
+
+"""
+    load_example_graph(graph_name::String="test")
+
+Return one of the example graphs from the `VertexEliminationOrders` package.
+
+# Possible arguments:
+- bristlecone\\_48\\_1-16-1\\_0
+- rectangular\\_2x2\\_1-2-1\\_0
+- rectangular\\_4x4\\_1-16-1\\_0
+- sycamore\\_53\\_8\\_0
+- sycamore\\_53\\_20\\_0
+- test
+"""
+function load_example_graph(graph_name::String="test")
+    filename = joinpath(dirname(dirname(@__FILE__)), "examples", graph_name * ".gr")
+    graph_from_gr(filename)
 end
 
 
