@@ -1,15 +1,14 @@
 name = "VertexEliminationOrders"
 uuid = "8b81cbe5-9619-4878-8f6a-289d09070662"
-authors = ["John Brennan <john.brennan@ichec.ie> and contributors"]
-version = "0.1.0"
+authors = ["John Brennan <johnmarkbrennan@gmail.com> and contributors"]
+version = "1.0.0"
 
 [deps]
 LightGraphs = "093fc24a-ae57-5d10-9952-331d41423f4d"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [compat]
-julia = "1"
+julia = "1.6"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
